@@ -1,26 +1,9 @@
 NestedText: A Human Friendly Data Format
 ========================================
 
-.. image:: https://img.shields.io/travis/KenKundert/nestedtext/master.svg
-    :target: https://travis-ci.org/KenKundert/nestedtext
+**Note that this is a simplified fork of the original project <https://github.com/KenKundert/nestedtext> with authors Ken & Kale Kundert. Please see that project for the official language spec.**
 
-.. image:: https://img.shields.io/coveralls/KenKundert/nestedtext.svg
-    :target: https://coveralls.io/r/KenKundert/nestedtext
-
-.. image:: https://img.shields.io/pypi/v/nestedtext.svg
-    :target: https://pypi.python.org/pypi/nestedtext
-
-.. image:: https://img.shields.io/pypi/pyversions/nestedtext.svg
-    :target: https://pypi.python.org/pypi/nestedtext
-
-
-| Authors: Ken & Kale Kundert
-| Version: 1.3.0
-| Released: 2021-01-02
-| Documentation: `nestedtext.org <https://nestedtext.org>`_.
-| Please post all questions, suggestions, and bug reports to: `Github <https://github.com/KenKundert/nestedtext/issues>`_.
 |
-
 
 *NestedText* is a file format for holding data that is to be entered, edited, or 
 viewed by people.  It allows data to be organized into a nested collection of 
@@ -138,12 +121,3 @@ Related Projects
 
 `visual studio <https://marketplace.visualstudio.com/items?itemName=bmarkovic17.nestedtext>`_:
     Syntax files for *Visual Studio*.
-
-
-Contributing
-------------
-
-This package contains a Python reference implementation of *NestedText* and 
-a test suite.  Implementation in many languages is required for *NestedText* to 
-catch on widely.  If you like the format, please consider contributing 
-additional implementations.

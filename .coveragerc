@@ -1,6 +1,7 @@
 [report]
 exclude_lines =
-    pragma: no cover
+    pass
+    NotImplemented
     raise NotImplementedError
 
 [run]

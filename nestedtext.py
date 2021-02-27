@@ -3,7 +3,6 @@
 NestedText: A Human Readable and Writable Data Format
 """
 
-# MIT License {{{1
 # Copyright (c) 2020 Kenneth S. Kundert and Kale Kundert
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -24,30 +23,21 @@ NestedText: A Human Readable and Writable Data Format
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-# Imports {{{1
-from inform import (
-    full_stop,
-    set_culprit,
-    get_culprit,
-    is_str,
-    is_collection,
-    is_mapping,
-    Error,
-    Info,
-)
-import textwrap
+import collections
 import collections.abc
+import enum
 import re
+import textwrap
 
 
-# Globals {{{1
 __version__ = "1.3.0"
 __released__ = "2021-01-02"
 __all__ = ['load', 'loads', 'dump', 'dumps', 'NestedTextError']
 
+from typing import Optional, Union, Callable, List, Dict
 
-# Exception {{{1
-class NestedTextError(Error, ValueError):
+
+class NestedTextError(ValueError):
     r'''
     The *load* and *dump* functions all raise *NestedTextError* when they
     discover an error. *NestedTextError* subclasses both the Python *ValueError*
@@ -171,11 +161,12 @@ class NestedTextError(Error, ValueError):
 
     '''
 
+    def __init__(self, template: str, culprit=None):
+        super().__init__(template)
 
-# NestedText Reader {{{1
+
 # Converts NestedText into Python data hierarchies.
 
-# constants {{{2
 # regular expressions used to recognize dict items
 dict_item_regex = r"""
     (?P<quote>["']?)       # leading quote character, optional
@@ -188,38 +179,10 @@ dict_item_regex = r"""
 dict_item_recognizer = re.compile(dict_item_regex, re.VERBOSE)
 
 
-# report {{{2
 def report(message, line, *args, colno=None, **kwargs):
-    message = full_stop(message)
-    culprits = get_culprit()
-    if culprits:
-        kwargs['source'] = culprits[0]
-    if line:
-        kwargs['culprit'] = get_culprit(line.lineno)
-        if colno is not None:
-            # build codicil that shows both the line and the preceding line
-            if line.prev_line is not None:
-                codicil = [f'{line.prev_line.lineno:>4} «{line.prev_line.text}»']
-            else:
-                codicil = []
-            codicil += [
-                f'{line.lineno:>4} «{line.text}»',
-                '      ' + (colno*' ') + '▲',
-            ]
-            kwargs['codicil'] = '\n'.join(codicil)
-            kwargs['colno'] = colno
-        else:
-            kwargs['codicil'] = f'{line.lineno:>4} «{line.text}»'
-        kwargs['line'] = line.text
-        kwargs['lineno'] = line.lineno
-        if line.prev_line:
-            kwargs['prev_line'] = line.prev_line.text
-    else:
-        kwargs['culprit'] = culprits  # pragma: no cover
-    raise NestedTextError(template=message, *args, **kwargs)
+    raise NestedTextError(template=message)
 
 
-# indentation_error {{{2
 def indentation_error(line, depth):
     assert line.depth != depth
     prev_line = line.prev_line
@@ -229,7 +192,7 @@ def indentation_error(line, depth):
         prev_line and
         prev_line.value and
         prev_line.depth < line.depth and
-        prev_line.kind in ['list item', 'dict item']
+        prev_line.kind in [LineType.LIST, LineType.DICT]
     ):
         if prev_line.value.strip() == '':
             obs = ', which in this case consists only of whitespace'
@@ -250,23 +213,28 @@ def indentation_error(line, depth):
     report(textwrap.fill(msg), line, colno=depth)
 
 
-# Lines class {{{2
+Line = collections.namedtuple("Line", "text, lineno, kind, depth, key, value, prev_line")
+
+
+class LineType(enum.Enum):
+    BLANK = enum.auto()
+    COMMENT = enum.auto()
+    STRING = enum.auto()
+    LIST = enum.auto()
+    DICT = enum.auto()
+    UNRECOGNISED = enum.auto()
+
+
 class Lines:
-    # constructor {{{3
     def __init__(self, lines):
         self.lines = lines
         self.generator = self.read_lines()
         self.next_line = True
         while self.next_line:
             self.next_line = next(self.generator, None)
-            if self.next_line and self.next_line.kind not in ["blank", "comment"]:
+            if self.next_line and self.next_line.kind not in [LineType.BLANK, LineType.COMMENT]:
                 return
 
-    # Line class {{{3
-    class Line(Info):
-        pass
-
-    # read_lines() {{{3
     def read_lines(self):
         prev_line = None
         for lineno, line in enumerate(self.lines):
@@ -281,42 +249,42 @@ class Lines:
 
             # determine line type and extract values
             if stripped == "":
-                kind = "blank"
+                kind = LineType.BLANK
                 value = None
                 depth = None
             elif stripped[:1] == "#":
-                kind = "comment"
+                kind = LineType.COMMENT
                 value = line[1:].strip()
                 depth = None
             elif stripped == '-' or stripped.startswith('- '):
-                kind = "list item"
+                kind = LineType.LIST
                 value = stripped[2:]
             elif stripped == '>' or stripped.startswith('> '):
-                kind = "string item"
+                kind = LineType.STRING
                 value = line[depth+2:]
             else:
                 matches = dict_item_recognizer.fullmatch(stripped)
                 if matches:
-                    kind = "dict item"
+                    kind = LineType.DICT
                     key = matches.group('key')
                     value = matches.group('value')
                     if value is None:
                         value = ''
                 else:
-                    kind = "unrecognized"
+                    kind = LineType.UNRECOGNISED
                     value = line
 
             # bundle information about line
-            the_line = self.Line(
-                text = line,
-                lineno = lineno+1,
-                kind = kind,
-                depth = depth,
-                key = key,
-                value = value,
-                prev_line = prev_line,
+            the_line = Line(
+                text=line,
+                lineno=lineno + 1,
+                kind=kind,
+                depth=depth,
+                key=key,
+                value=value,
+                prev_line=prev_line,
             )
-            if kind.endswith(' item'):
+            if kind in [LineType.STRING, LineType.LIST, LineType.DICT]:
                 prev_line = the_line
 
             # check the indent for non-spaces
@@ -331,32 +299,27 @@ class Lines:
 
             yield the_line
 
-    # type_of_next() {{{3
-    def type_of_next(self):
+    def type_of_next(self) -> LineType:
         if self.next_line:
             return self.next_line.kind
 
-    # still_within_level() {{{3
-    def still_within_level(self, depth):
+    def still_within_level(self, depth: int) -> bool:
         if self.next_line:
             return self.next_line.depth >= depth
 
-    # still_within_string() {{{3
-    def still_within_string(self, depth):
+    def still_within_string(self, depth: int) -> bool:
         if self.next_line:
             return (
-                self.next_line.kind == "string item" and
+                self.next_line.kind is LineType.STRING and
                 self.next_line.depth >= depth
             )
 
-    # depth_of_next() {{{3
-    def depth_of_next(self):
+    def depth_of_next(self) -> int:
         if self.next_line:
             return self.next_line.depth
         return 0
 
-    # get_next() {{{3
-    def get_next(self):
+    def get_next(self) -> Optional[Line]:
         this_line = self.next_line
 
         # queue up the next useful line
@@ -364,33 +327,31 @@ class Lines:
         # access the next upcoming line.
         while self.next_line:
             self.next_line = next(self.generator, None)
-            if not self.next_line or self.next_line.kind not in ["blank", "comment"]:
+            if not self.next_line or self.next_line.kind not in [LineType.BLANK, LineType.COMMENT]:
                 break
 
-        if this_line and this_line.kind == "unrecognized":
-            report('unrecognized line.', this_line)
+        if this_line and this_line.kind is LineType.UNRECOGNISED:
+            report('unrecognized line', this_line)
         return this_line
 
 
-# read_value() {{{2
 def read_value(lines, depth, on_dup):
-    if lines.type_of_next() == "list item":
+    if lines.type_of_next() is LineType.LIST:
         return read_list(lines, depth, on_dup)
-    if lines.type_of_next() == "dict item":
+    if lines.type_of_next() is LineType.DICT:
         return read_dict(lines, depth, on_dup)
-    if lines.type_of_next() == "string item":
+    if lines.type_of_next() is LineType.STRING:
         return read_string(lines, depth)
-    report('unrecognized line.', lines.get_next())
+    report('unrecognized line', lines.get_next())
 
 
-# read_list() {{{2
 def read_list(lines, depth, on_dup):
     data = []
     while lines.still_within_level(depth):
         line = lines.get_next()
         if line.depth != depth:
             indentation_error(line, depth)
-        if line.kind != "list item":
+        if line.kind is not LineType.LIST:
             report("expected list item", line, colno=depth)
         if line.value:
             data.append(line.value)
@@ -406,14 +367,13 @@ def read_list(lines, depth, on_dup):
     return data
 
 
-# read_dict() {{{2
 def read_dict(lines, depth, on_dup):
     data = {}
     while lines.still_within_level(depth):
         line = lines.get_next()
         if line.depth != depth:
             indentation_error(line, depth)
-        if line.kind != "dict item":
+        if line.kind is not LineType.DICT:
             report("expected dictionary item", line, colno=depth)
         key = line.key
         value = line.value
@@ -438,7 +398,6 @@ def read_dict(lines, depth, on_dup):
     return data
 
 
-# read_string() {{{2
 def read_string(lines, depth):
     data = []
     while lines.still_within_string(depth):
@@ -449,71 +408,25 @@ def read_string(lines, depth):
     return "\n".join(data)
 
 
-# read_all() {{{2
-def read_all(lines, top, source, on_dup):
+def read_all(lines, on_dup):
     if callable(on_dup):
         on_dup = dict(_callback_func=on_dup)
 
-    with set_culprit(source):
-        lines = Lines(lines)
+    lines = Lines(lines)
 
-        if top in ['any', any]:
-            if lines.type_of_next():
-                return read_value(lines, 0, on_dup)
-            else:
-                return None
-
-        next_is = lines.type_of_next()
-
-        if top in ['dict', dict]:
-            if next_is == "dict item":
-                return read_dict(lines, 0, on_dup)
-            elif next_is:
-                report('content must start with key.', lines.get_next())
-            else:
-                return {}
-
-        if top in ['list', list]:
-            if next_is == "list item":
-                return read_list(lines, 0, on_dup)
-            elif next_is:
-                report('content must start with dash (-).', lines.get_next())
-            else:
-                return []
-
-        if top in ['str', str]:
-            if next_is == "string item":
-                return read_string(lines, 0)
-            elif next_is:
-                report('content must start with greater-than sign (>).', lines.get_next())
-            else:
-                return ""
-
-        raise NotImplementedError(top)
+    if lines.type_of_next():
+        return read_value(lines, 0, on_dup)
+    else:
+        return None
 
 
-# loads() {{{2
-def loads(content, top='dict', *, source=None, on_dup=None):
+def loads(content: str, *, on_dup: Optional[Union[Callable, str]] = None) -> Union[str, List, Dict, None]:
     r'''
     Loads *NestedText* from string.
 
     Args:
         content (str):
             String that contains encoded data.
-        top (str):
-            Top-level data type. The NestedText format allows for a dictionary,
-            a list, or a string as the top-level data container.  By specifying
-            top as 'dict', 'list', or 'str' you constrain both the type of
-            top-level container and the return value of this function. By
-            specifying 'any' you enable support for all three data types, with
-            the type of the returned value matching that of top-level container
-            in content. As a short-hand, you may specify the *dict*, *list*,
-            *str*, and *any* built-ins rather than specifying *top* with a
-            string.
-        source (str or Path):
-            If given, this string is attached to any error messages as the
-            culprit. It is otherwise unused. Is often the name of the file that
-            originally contained the NestedText content.
         on_dup (str or func):
             Indicates how duplicate keys in dictionaries should be handled. By
             default they raise exceptions. Specifying 'ignore' causes them to be
@@ -531,11 +444,7 @@ def loads(content, top='dict', *, source=None, on_dup=None):
                retained between multiple calls to this call back function.
 
     Returns:
-        The extracted data.  The type of the return value is specified by the
-        top argument.  If top is 'any', then the return value will match that of
-        top-level data container in the input content. If content is empty, an
-        empty data value is return of the type specified by top. If top is
-        'any' None is returned.
+        The extracted data.
 
     Raises:
         NestedTextError: if there is a problem in the *NextedText* content.
@@ -555,32 +464,23 @@ def loads(content, top='dict', *, source=None, on_dup=None):
             ... """
 
             >>> try:
-            ...     data = nt.loads(contents, 'dict')
+            ...     data = nt.loads(contents)
             ... except nt.NestedTextError as e:
-            ...     e.terminate()
+            ...     print("ERROR:", e)
 
             >>> print(data)
             {'name': 'Kristel Templeton', 'sex': 'female', 'age': '74'}
 
-        *loads()* takes an optional argument, *source*. If specified, it is
-        added to any error messages. It is often used to designate the source
-        of *contents*. For example, if *contents* were read from a file,
-        *source* would be the file name.  Here is a typical example of reading
-        *NestedText* from a file:
+        Here is a typical example of reading *NestedText* from a file:
 
         .. code-block:: python
 
             >>> filename = 'examples/duplicate-keys.nt'
             >>> try:
             ...     with open(filename, encoding='utf-8') as f:
-            ...         addresses = nt.loads(f.read(), source=filename)
+            ...         addresses = nt.loads(f.read())
             ... except nt.NestedTextError as e:
-            ...     print(e.render())
-            ...     print(*e.get_codicil(), sep="\n")
-            examples/duplicate-keys.nt, 5: duplicate key: name.
-               4 «name:»
-               5 «name:»
-                  ▲
+            ...     print("ERROR:", e)
 
         Notice in the above example the encoding is explicitly specified as
         'utf-8'.  *NestedText* files should always be read and written using
@@ -620,13 +520,10 @@ def loads(content, top='dict', *, source=None, on_dup=None):
             {'key': 'value 1', 'key#2': 'value 2', 'key#3': 'value 3', 'name': 'value 4', 'name#2': 'value 5'}
 
     '''
-
-    lines = content.replace('\r\n', '\n').replace('\r', '\n').split('\n')
-    return read_all(lines, top, source, on_dup)
+    return read_all(content.splitlines(), on_dup)
 
 
-# load() {{{2
-def load(f=None, top='dict', *, on_dup=None):
+def load(f=None, top='any', *, on_dup=None):
     r'''
     Loads *NestedText* from file or stream.
 
@@ -706,12 +603,10 @@ def load(f=None, top='dict', *, on_dup=None):
             return read_all(fp, top, source, on_dup)
 
 
-# NestedText Writer {{{1
-# Converts Python data hierarchies to NestedText.
+# Convert Python data hierarchies to NestedText.
 
-# render_key {{{2
 def render_key(s):
-    if not is_str(s):
+    if not isinstance(s, str):
         raise NestedTextError(template='keys must be strings.', culprit=s)
     stripped = s.strip(' ')
     if '\n' in s:
@@ -743,7 +638,6 @@ def render_key(s):
     return s
 
 
-# add_leader {{{2
 def add_leader(s, leader):
     # split into separate lines
     # add leader to each non-blank line
@@ -755,7 +649,6 @@ def add_leader(s, leader):
     )
 
 
-# add_prefix {{{2
 def add_prefix(prefix, suffix):
     # A simple formatting of dict and list items will result in a space
     # after the colon or dash if the value is placed on next line.
@@ -765,7 +658,6 @@ def add_prefix(prefix, suffix):
     return prefix + " " + suffix
 
 
-# dumps {{{2
 def dumps(obj, *, sort_keys=False, indent=4, renderers=None, default=None, level=0):
     """Recursively convert object to *NestedText* string.
 
@@ -1007,7 +899,6 @@ def dumps(obj, *, sort_keys=False, indent=4, renderers=None, default=None, level
     return content
 
 
-# dump {{{2
 def dump(obj, f, **kwargs):
     """Write the *NestedText* representation of the given object to the given file.
 
