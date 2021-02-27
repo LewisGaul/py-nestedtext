@@ -35,11 +35,11 @@ import collections.abc
 import enum
 import re
 import textwrap
-from typing import Callable, Dict, List, Optional, Union
+from typing import Callable, Dict, Iterable, List, Optional, Union
 
 
 class NestedTextError(ValueError):
-    r'''
+    r"""
     The *load* and *dump* functions all raise *NestedTextError* when they
     discover an error. *NestedTextError* subclasses both the Python *ValueError*
     and the *Error* exception from *Inform*.  You can find more documentation on
@@ -82,11 +82,11 @@ class NestedTextError(ValueError):
         >>> from textwrap import dedent
         >>> import nestedtext as nt
 
-        >>> content = dedent("""
+        >>> content = dedent('''
         ...     name1: value1
         ...     name1: value2
         ...     name3: value3
-        ... """).strip()
+        ... ''').strip()
 
         >>> try:
         ...     print(nt.loads(content))
@@ -94,14 +94,14 @@ class NestedTextError(ValueError):
         ...     print(str(e))
         2: duplicate key: name1.
 
-    You can also use the *report* method to print the message directly. This is
+    You can also use the *_report* method to print the message directly. This is
     appropriate if you are using *inform* for your messaging as it follows
     *inform*'s conventions::
 
         >> try:
         ..     print(nt.loads(content))
         .. except nt.NestedTextError as e:
-        ..     e.report()
+        ..     e._report()
         error: 2: duplicate key: name1.
             «name1: value2»
              ▲
@@ -118,7 +118,7 @@ class NestedTextError(ValueError):
 
     With exceptions generated from :func:`load` or :func:`loads` you may see
     extra lines at the end of the message that show the problematic lines if
-    you have the exception report itself as above.  Those extra lines are
+    you have the exception _report itself as above.  Those extra lines are
     referred to as the codicil and they can be very helpful in illustrating the
     actual problem. You do not get them if you simply cast the exception to a
     string, but you can access them using :meth:`NestedTextError.get_codicil`.
@@ -143,7 +143,7 @@ class NestedTextError(ValueError):
 
     Exceptions produced by *NestedText* contain a *template* attribute that
     contains the basic text of the message. You can change this message by
-    overriding the attribute using the *template* argument when using *report*,
+    overriding the attribute using the *template* argument when using *_report*,
     *terminate*, or *render*.  *render* is like casting the exception to a
     string except that allows for the passing of arguments.  For example, to
     convert a particular message to Spanish, you could use something like the
@@ -160,7 +160,7 @@ class NestedTextError(ValueError):
         ...     print(e.render(template=template))
         2: llave duplicada: name1.
 
-    '''
+    """
 
     def __init__(self, template: str, culprit=None):
         super().__init__(template)
@@ -180,11 +180,11 @@ dict_item_regex = r"""
 dict_item_recognizer = re.compile(dict_item_regex, re.VERBOSE)
 
 
-def report(message, line, *args, colno=None, **kwargs):
+def _report(message, line, *args, colno=None, **kwargs):
     raise NestedTextError(template=message)
 
 
-def indentation_error(line, depth):
+def _indentation_error(line, depth):
     assert line.depth != depth
     prev_line = line.prev_line
     if not line.prev_line and depth == 0:
@@ -193,7 +193,7 @@ def indentation_error(line, depth):
         prev_line
         and prev_line.value
         and prev_line.depth < line.depth
-        and prev_line.kind in [LineType.LIST, LineType.DICT]
+        and prev_line.kind in [_LineType.LIST, _LineType.DICT]
     ):
         if prev_line.value.strip() == "":
             obs = ", which in this case consists only of whitespace"
@@ -210,15 +210,15 @@ def indentation_error(line, depth):
         msg = "invalid indentation, partial dedent"
     else:
         msg = "invalid indentation."
-    report(textwrap.fill(msg), line, colno=depth)
+    _report(textwrap.fill(msg), line, colno=depth)
 
 
-Line = collections.namedtuple(
-    "Line", "text, lineno, kind, depth, key, value, prev_line"
+_Line = collections.namedtuple(
+    "_Line", "text, lineno, kind, depth, key, value, prev_line"
 )
 
 
-class LineType(enum.Enum):
+class _LineType(enum.Enum):
     BLANK = enum.auto()
     COMMENT = enum.auto()
     STRING = enum.auto()
@@ -227,22 +227,22 @@ class LineType(enum.Enum):
     UNRECOGNISED = enum.auto()
 
 
-class Lines:
+class _LinesIter(Iterable[_Line]):
     def __init__(self, lines):
-        self.lines = lines
-        self.generator = self.read_lines()
-        self.next_line = True
-        while self.next_line:
-            self.next_line = next(self.generator, None)
-            if self.next_line and self.next_line.kind not in [
-                LineType.BLANK,
-                LineType.COMMENT,
+        self._lines = lines
+        self._generator = self._read_lines()
+        self._next_line = True
+        while self._next_line:
+            self._next_line = next(self._generator, None)
+            if self._next_line and self._next_line.kind not in [
+                _LineType.BLANK,
+                _LineType.COMMENT,
             ]:
                 return
 
-    def read_lines(self):
+    def _read_lines(self):
         prev_line = None
-        for lineno, line in enumerate(self.lines):
+        for lineno, line in enumerate(self._lines):
             depth = None
             key = None
             value = None
@@ -254,33 +254,33 @@ class Lines:
 
             # determine line type and extract values
             if stripped == "":
-                kind = LineType.BLANK
+                kind = _LineType.BLANK
                 value = None
                 depth = None
             elif stripped[:1] == "#":
-                kind = LineType.COMMENT
+                kind = _LineType.COMMENT
                 value = line[1:].strip()
                 depth = None
             elif stripped == "-" or stripped.startswith("- "):
-                kind = LineType.LIST
+                kind = _LineType.LIST
                 value = stripped[2:]
             elif stripped == ">" or stripped.startswith("> "):
-                kind = LineType.STRING
+                kind = _LineType.STRING
                 value = line[depth + 2 :]
             else:
                 matches = dict_item_recognizer.fullmatch(stripped)
                 if matches:
-                    kind = LineType.DICT
+                    kind = _LineType.DICT
                     key = matches.group("key")
                     value = matches.group("value")
                     if value is None:
                         value = ""
                 else:
-                    kind = LineType.UNRECOGNISED
+                    kind = _LineType.UNRECOGNISED
                     value = line
 
             # bundle information about line
-            the_line = Line(
+            the_line = _Line(
                 text=line,
                 lineno=lineno + 1,
                 kind=kind,
@@ -289,14 +289,14 @@ class Lines:
                 value=value,
                 prev_line=prev_line,
             )
-            if kind in [LineType.STRING, LineType.LIST, LineType.DICT]:
+            if kind in [_LineType.STRING, _LineType.LIST, _LineType.DICT]:
                 prev_line = the_line
 
             # check the indent for non-spaces
             if depth:
                 first_non_space = len(line) - len(line.lstrip(" "))
                 if first_non_space < depth:
-                    report(
+                    _report(
                         f"invalid character in indentation: {line[first_non_space]!r}.",
                         the_line,
                         colno=first_non_space,
@@ -304,62 +304,63 @@ class Lines:
 
             yield the_line
 
-    def type_of_next(self) -> LineType:
-        if self.next_line:
-            return self.next_line.kind
+    def type_of_next(self) -> _LineType:
+        if self._next_line:
+            return self._next_line.kind
 
     def still_within_level(self, depth: int) -> bool:
-        if self.next_line:
-            return self.next_line.depth >= depth
+        if self._next_line:
+            return self._next_line.depth >= depth
 
     def still_within_string(self, depth: int) -> bool:
-        if self.next_line:
+        if self._next_line:
             return (
-                self.next_line.kind is LineType.STRING and self.next_line.depth >= depth
+                self._next_line.kind is _LineType.STRING
+                and self._next_line.depth >= depth
             )
 
     def depth_of_next(self) -> int:
-        if self.next_line:
-            return self.next_line.depth
+        if self._next_line:
+            return self._next_line.depth
         return 0
 
-    def get_next(self) -> Optional[Line]:
-        this_line = self.next_line
+    def get_next(self) -> Optional[_Line]:
+        this_line = self._next_line
 
         # queue up the next useful line
         # this is needed so type_of_next() and still_within_level() can easily
         # access the next upcoming line.
-        while self.next_line:
-            self.next_line = next(self.generator, None)
-            if not self.next_line or self.next_line.kind not in [
-                LineType.BLANK,
-                LineType.COMMENT,
+        while self._next_line:
+            self._next_line = next(self._generator, None)
+            if not self._next_line or self._next_line.kind not in [
+                _LineType.BLANK,
+                _LineType.COMMENT,
             ]:
                 break
 
-        if this_line and this_line.kind is LineType.UNRECOGNISED:
-            report("unrecognized line", this_line)
+        if this_line and this_line.kind is _LineType.UNRECOGNISED:
+            _report("unrecognized line", this_line)
         return this_line
 
 
-def read_value(lines, depth, on_dup):
-    if lines.type_of_next() is LineType.LIST:
-        return read_list(lines, depth, on_dup)
-    if lines.type_of_next() is LineType.DICT:
-        return read_dict(lines, depth, on_dup)
-    if lines.type_of_next() is LineType.STRING:
-        return read_string(lines, depth)
-    report("unrecognized line", lines.get_next())
+def _read_value(lines, depth, on_dup):
+    if lines.type_of_next() is _LineType.LIST:
+        return _read_list(lines, depth, on_dup)
+    if lines.type_of_next() is _LineType.DICT:
+        return _read_dict(lines, depth, on_dup)
+    if lines.type_of_next() is _LineType.STRING:
+        return _read_string(lines, depth)
+    _report("unrecognized line", lines.get_next())
 
 
-def read_list(lines, depth, on_dup):
+def _read_list(lines, depth, on_dup):
     data = []
     while lines.still_within_level(depth):
         line = lines.get_next()
         if line.depth != depth:
-            indentation_error(line, depth)
-        if line.kind is not LineType.LIST:
-            report("expected list item", line, colno=depth)
+            _indentation_error(line, depth)
+        if line.kind is not _LineType.LIST:
+            _report("expected list item", line, colno=depth)
         if line.value:
             data.append(line.value)
         else:
@@ -367,33 +368,33 @@ def read_list(lines, depth, on_dup):
             # case it must be indented.
             depth_of_next = lines.depth_of_next()
             if depth_of_next > depth:
-                value = read_value(lines, depth_of_next, on_dup)
+                value = _read_value(lines, depth_of_next, on_dup)
             else:
                 value = ""
             data.append(value)
     return data
 
 
-def read_dict(lines, depth, on_dup):
+def _read_dict(lines, depth, on_dup):
     data = {}
     while lines.still_within_level(depth):
         line = lines.get_next()
         if line.depth != depth:
-            indentation_error(line, depth)
-        if line.kind is not LineType.DICT:
-            report("expected dictionary item", line, colno=depth)
+            _indentation_error(line, depth)
+        if line.kind is not _LineType.DICT:
+            _report("expected dictionary item", line, colno=depth)
         key = line.key
         value = line.value
         if not value:
             depth_of_next = lines.depth_of_next()
             if depth_of_next > depth:
-                value = read_value(lines, depth_of_next, on_dup)
+                value = _read_value(lines, depth_of_next, on_dup)
             else:
                 value = ""
         if line.key in data:
             # found duplicate key
             if on_dup is None:
-                report("duplicate key: {}.", line, line.key, colno=depth)
+                _report("duplicate key: {}.", line, line.key, colno=depth)
             if on_dup == "ignore":
                 continue
             if isinstance(on_dup, dict):
@@ -405,24 +406,24 @@ def read_dict(lines, depth, on_dup):
     return data
 
 
-def read_string(lines, depth):
+def _read_string(lines, depth):
     data = []
     while lines.still_within_string(depth):
         line = lines.get_next()
         data.append(line.value)
         if line.depth != depth:
-            indentation_error(line, depth)
+            _indentation_error(line, depth)
     return "\n".join(data)
 
 
-def read_all(lines, on_dup):
+def _read_all(lines, on_dup):
     if callable(on_dup):
         on_dup = dict(_callback_func=on_dup)
 
-    lines = Lines(lines)
+    lines = _LinesIter(lines)
 
     if lines.type_of_next():
-        return read_value(lines, 0, on_dup)
+        return _read_value(lines, 0, on_dup)
     else:
         return None
 
@@ -430,7 +431,7 @@ def read_all(lines, on_dup):
 def loads(
     content: str, *, on_dup: Optional[Union[Callable, str]] = None
 ) -> Union[str, List, Dict, None]:
-    r'''
+    r"""
     Loads *NestedText* from string.
 
     Args:
@@ -466,11 +467,11 @@ def loads(
 
             >>> import nestedtext as nt
 
-            >>> contents = """
+            >>> contents = '''
             ... name: Kristel Templeton
             ... sex: female
             ... age: 74
-            ... """
+            ... '''
 
             >>> try:
             ...     data = nt.loads(contents)
@@ -500,13 +501,13 @@ def loads(
 
         .. code-block:: python
 
-            >>> content = """
+            >>> content = '''
             ... key: value 1
             ... key: value 2
             ... key: value 3
             ... name: value 4
             ... name: value 5
-            ... """
+            ... '''
 
             >>> print(nt.loads(content))
             Traceback (most recent call last):
@@ -528,11 +529,11 @@ def loads(
             >>> print(nt.loads(content, on_dup=de_dup))
             {'key': 'value 1', 'key#2': 'value 2', 'key#3': 'value 3', 'name': 'value 4', 'name#2': 'value 5'}
 
-    '''
-    return read_all(content.splitlines(), on_dup)
+    """
+    return _read_all(content.splitlines(), on_dup)
 
 
-def load(f=None, top="any", *, on_dup=None):
+def load(f=None, *, on_dup=None):
     r"""
     Loads *NestedText* from file or stream.
 
@@ -600,29 +601,27 @@ def load(f=None, top="any", *, on_dup=None):
 
     # Do not invoke the read method as that would read in the entire contents of
     # the file, possibly consuming a lot of memory. Instead pass the file
-    # pointer into read_all(), it will iterate through the lines, discarding
+    # pointer into _read_all(), it will iterate through the lines, discarding
     # them once they are no longer needed, which reduces the memory usage.
 
     if isinstance(f, collections.abc.Iterator):
         source = getattr(f, "name", None)
-        return read_all(f, top, source, on_dup)
+        return _read_all(f, on_dup)
     else:
         source = str(f)
         with open(f, encoding="utf-8") as fp:
-            return read_all(fp, top, source, on_dup)
+            return _read_all(fp, on_dup)
 
 
 # Convert Python data hierarchies to NestedText.
 
 
-def render_key(s):
+def _render_key(s):
     if not isinstance(s, str):
         raise NestedTextError(template="keys must be strings.", culprit=s)
     stripped = s.strip(" ")
     if "\n" in s:
-        raise NestedTextError(
-            s, template="keys must not contain newlines.", culprit=repr(s)
-        )
+        raise NestedTextError("keys must not contain newlines", culprit=repr(s))
     if (
         len(stripped) < len(s)
         or s[:1] in ["#", "'", '"']
@@ -642,11 +641,11 @@ def render_key(s):
             matches = dict_item_recognizer.fullmatch(key + ":")
             if matches and matches.group("key") == s:
                 return key
-        raise NestedTextError(s, template="cannot disambiguate key.", culprit=key)
+        raise NestedTextError("cannot disambiguate key", culprit=key)
     return s
 
 
-def add_leader(s, leader):
+def _add_leader(s, leader):
     # split into separate lines
     # add leader to each non-blank line
     # add right-stripped leader to each blank line
@@ -656,7 +655,7 @@ def add_leader(s, leader):
     )
 
 
-def add_prefix(prefix, suffix):
+def _add_prefix(prefix, suffix):
     # A simple formatting of dict and list items will result in a space
     # after the colon or dash if the value is placed on next line.
     # This, function simply eliminates that space.
@@ -875,14 +874,14 @@ def dumps(obj, *, sort_keys=False, indent=4, renderers=None, default=None, level
             need_indented_block = True
     elif is_a_dict(obj):
         content = "\n".join(
-            add_prefix(render_key(k) + ":", rdumps(obj[k])) for k in sort(obj)
+            _add_prefix(_render_key(k) + ":", rdumps(obj[k])) for k in sort(obj)
         )
     elif is_a_list(obj):
-        content = "\n".join(add_prefix("-", rdumps(v)) for v in obj)
+        content = "\n".join(_add_prefix("-", rdumps(v)) for v in obj)
     elif is_a_str(obj):
         text = obj.replace("\r\n", "\n").replace("\r", "\n")
         if "\n" in text or level == 0:
-            content = add_leader(text, "> ")
+            content = _add_leader(text, "> ")
             need_indented_block = True
         else:
             content = text
@@ -897,7 +896,7 @@ def dumps(obj, *, sort_keys=False, indent=4, renderers=None, default=None, level
         error = "unsupported type."
 
     if need_indented_block and content and level:
-        content = "\n" + add_leader(content, indent * " ")
+        content = "\n" + _add_leader(content, indent * " ")
 
     if error:
         raise NestedTextError(obj, template=error, culprit=repr(obj))
