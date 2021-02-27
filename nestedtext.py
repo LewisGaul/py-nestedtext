@@ -1,7 +1,4 @@
 # encoding: utf8
-"""
-NestedText: A Human Readable and Writable Data Format
-"""
 
 # Copyright (c) 2020 Kenneth S. Kundert and Kale Kundert
 #
@@ -23,18 +20,22 @@ NestedText: A Human Readable and Writable Data Format
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+
+"""
+NestedText: A Human Readable and Writable Data Format
+"""
+
+__version__ = "0.0.1"
+
+__all__ = ("load", "loads", "dump", "dumps", "NestedTextError")
+
+
 import collections
 import collections.abc
 import enum
 import re
 import textwrap
-
-
-__version__ = "1.3.0"
-__released__ = "2021-01-02"
-__all__ = ['load', 'loads', 'dump', 'dumps', 'NestedTextError']
-
-from typing import Optional, Union, Callable, List, Dict
+from typing import Callable, Dict, List, Optional, Union
 
 
 class NestedTextError(ValueError):
@@ -187,33 +188,34 @@ def indentation_error(line, depth):
     assert line.depth != depth
     prev_line = line.prev_line
     if not line.prev_line and depth == 0:
-        msg = 'top-level content must start in column 1.'
+        msg = "top-level content must start in column 1."
     elif (
-        prev_line and
-        prev_line.value and
-        prev_line.depth < line.depth and
-        prev_line.kind in [LineType.LIST, LineType.DICT]
+        prev_line
+        and prev_line.value
+        and prev_line.depth < line.depth
+        and prev_line.kind in [LineType.LIST, LineType.DICT]
     ):
-        if prev_line.value.strip() == '':
-            obs = ', which in this case consists only of whitespace'
+        if prev_line.value.strip() == "":
+            obs = ", which in this case consists only of whitespace"
         else:
-            obs = ''
-        msg = ' '.join([
-            'invalid indentation.',
-            'An indent may only follow a dictionary or list item that does',
-            f'not already have a value{obs}.'
-        ])
-    elif (
-        prev_line and
-        prev_line.depth > line.depth
-    ):
-        msg = 'invalid indentation, partial dedent'
+            obs = ""
+        msg = " ".join(
+            [
+                "invalid indentation.",
+                "An indent may only follow a dictionary or list item that does",
+                f"not already have a value{obs}.",
+            ]
+        )
+    elif prev_line and prev_line.depth > line.depth:
+        msg = "invalid indentation, partial dedent"
     else:
-        msg = 'invalid indentation.'
+        msg = "invalid indentation."
     report(textwrap.fill(msg), line, colno=depth)
 
 
-Line = collections.namedtuple("Line", "text, lineno, kind, depth, key, value, prev_line")
+Line = collections.namedtuple(
+    "Line", "text, lineno, kind, depth, key, value, prev_line"
+)
 
 
 class LineType(enum.Enum):
@@ -232,7 +234,10 @@ class Lines:
         self.next_line = True
         while self.next_line:
             self.next_line = next(self.generator, None)
-            if self.next_line and self.next_line.kind not in [LineType.BLANK, LineType.COMMENT]:
+            if self.next_line and self.next_line.kind not in [
+                LineType.BLANK,
+                LineType.COMMENT,
+            ]:
                 return
 
     def read_lines(self):
@@ -241,7 +246,7 @@ class Lines:
             depth = None
             key = None
             value = None
-            line = line.rstrip('\n')
+            line = line.rstrip("\n")
 
             # compute indentation
             stripped = line.lstrip()
@@ -256,20 +261,20 @@ class Lines:
                 kind = LineType.COMMENT
                 value = line[1:].strip()
                 depth = None
-            elif stripped == '-' or stripped.startswith('- '):
+            elif stripped == "-" or stripped.startswith("- "):
                 kind = LineType.LIST
                 value = stripped[2:]
-            elif stripped == '>' or stripped.startswith('> '):
+            elif stripped == ">" or stripped.startswith("> "):
                 kind = LineType.STRING
-                value = line[depth+2:]
+                value = line[depth + 2 :]
             else:
                 matches = dict_item_recognizer.fullmatch(stripped)
                 if matches:
                     kind = LineType.DICT
-                    key = matches.group('key')
-                    value = matches.group('value')
+                    key = matches.group("key")
+                    value = matches.group("value")
                     if value is None:
-                        value = ''
+                        value = ""
                 else:
                     kind = LineType.UNRECOGNISED
                     value = line
@@ -292,9 +297,9 @@ class Lines:
                 first_non_space = len(line) - len(line.lstrip(" "))
                 if first_non_space < depth:
                     report(
-                        f'invalid character in indentation: {line[first_non_space]!r}.',
+                        f"invalid character in indentation: {line[first_non_space]!r}.",
                         the_line,
-                        colno = first_non_space
+                        colno=first_non_space,
                     )
 
             yield the_line
@@ -310,8 +315,7 @@ class Lines:
     def still_within_string(self, depth: int) -> bool:
         if self.next_line:
             return (
-                self.next_line.kind is LineType.STRING and
-                self.next_line.depth >= depth
+                self.next_line.kind is LineType.STRING and self.next_line.depth >= depth
             )
 
     def depth_of_next(self) -> int:
@@ -327,11 +331,14 @@ class Lines:
         # access the next upcoming line.
         while self.next_line:
             self.next_line = next(self.generator, None)
-            if not self.next_line or self.next_line.kind not in [LineType.BLANK, LineType.COMMENT]:
+            if not self.next_line or self.next_line.kind not in [
+                LineType.BLANK,
+                LineType.COMMENT,
+            ]:
                 break
 
         if this_line and this_line.kind is LineType.UNRECOGNISED:
-            report('unrecognized line', this_line)
+            report("unrecognized line", this_line)
         return this_line
 
 
@@ -342,7 +349,7 @@ def read_value(lines, depth, on_dup):
         return read_dict(lines, depth, on_dup)
     if lines.type_of_next() is LineType.STRING:
         return read_string(lines, depth)
-    report('unrecognized line', lines.get_next())
+    report("unrecognized line", lines.get_next())
 
 
 def read_list(lines, depth, on_dup):
@@ -362,7 +369,7 @@ def read_list(lines, depth, on_dup):
             if depth_of_next > depth:
                 value = read_value(lines, depth_of_next, on_dup)
             else:
-                value = ''
+                value = ""
             data.append(value)
     return data
 
@@ -382,18 +389,18 @@ def read_dict(lines, depth, on_dup):
             if depth_of_next > depth:
                 value = read_value(lines, depth_of_next, on_dup)
             else:
-                value = ''
+                value = ""
         if line.key in data:
             # found duplicate key
             if on_dup is None:
-                report('duplicate key: {}.', line, line.key, colno=depth)
-            if on_dup == 'ignore':
+                report("duplicate key: {}.", line, line.key, colno=depth)
+            if on_dup == "ignore":
                 continue
             if isinstance(on_dup, dict):
-                key = on_dup['_callback_func'](key, value, data, on_dup)
+                key = on_dup["_callback_func"](key, value, data, on_dup)
                 assert key not in data
-            elif on_dup != 'replace':
-                raise NotImplementedError(f'{on_dup}: unknown value for on_dup.')
+            elif on_dup != "replace":
+                raise NotImplementedError(f"{on_dup}: unknown value for on_dup.")
         data[key] = value
     return data
 
@@ -420,7 +427,9 @@ def read_all(lines, on_dup):
         return None
 
 
-def loads(content: str, *, on_dup: Optional[Union[Callable, str]] = None) -> Union[str, List, Dict, None]:
+def loads(
+    content: str, *, on_dup: Optional[Union[Callable, str]] = None
+) -> Union[str, List, Dict, None]:
     r'''
     Loads *NestedText* from string.
 
@@ -523,8 +532,8 @@ def loads(content: str, *, on_dup: Optional[Union[Callable, str]] = None) -> Uni
     return read_all(content.splitlines(), on_dup)
 
 
-def load(f=None, top='any', *, on_dup=None):
-    r'''
+def load(f=None, top="any", *, on_dup=None):
+    r"""
     Loads *NestedText* from file or stream.
 
     Is the same as :func:`loads` except the *NextedText* is accessed by reading
@@ -587,7 +596,7 @@ def load(f=None, top='any', *, on_dup=None):
             ...
             {'groceries': ['Bread', 'Peanut butter', 'Jam']}
 
-    '''
+    """
 
     # Do not invoke the read method as that would read in the entire contents of
     # the file, possibly consuming a lot of memory. Instead pass the file
@@ -595,32 +604,31 @@ def load(f=None, top='any', *, on_dup=None):
     # them once they are no longer needed, which reduces the memory usage.
 
     if isinstance(f, collections.abc.Iterator):
-        source = getattr(f, 'name', None)
+        source = getattr(f, "name", None)
         return read_all(f, top, source, on_dup)
     else:
         source = str(f)
-        with open(f, encoding='utf-8') as fp:
+        with open(f, encoding="utf-8") as fp:
             return read_all(fp, top, source, on_dup)
 
 
 # Convert Python data hierarchies to NestedText.
 
+
 def render_key(s):
     if not isinstance(s, str):
-        raise NestedTextError(template='keys must be strings.', culprit=s)
-    stripped = s.strip(' ')
-    if '\n' in s:
+        raise NestedTextError(template="keys must be strings.", culprit=s)
+    stripped = s.strip(" ")
+    if "\n" in s:
         raise NestedTextError(
-            s,
-            template='keys must not contain newlines.',
-            culprit=repr(s)
+            s, template="keys must not contain newlines.", culprit=repr(s)
         )
     if (
         len(stripped) < len(s)
         or s[:1] in ["#", "'", '"']
         or s.startswith("- ")
         or s.startswith("> ")
-        or ': ' in s
+        or ": " in s
     ):
         if "'" in s:
             quotes = '"', "'"
@@ -631,10 +639,10 @@ def render_key(s):
         # if extracted key matches given key, accept
         for quote_char in quotes:
             key = quote_char + s + quote_char
-            matches = dict_item_recognizer.fullmatch(key + ':')
-            if matches and matches.group('key') == s:
+            matches = dict_item_recognizer.fullmatch(key + ":")
+            if matches and matches.group("key") == s:
                 return key
-        raise NestedTextError(s, template = "cannot disambiguate key.", culprit = key)
+        raise NestedTextError(s, template="cannot disambiguate key.", culprit=key)
     return s
 
 
@@ -643,9 +651,8 @@ def add_leader(s, leader):
     # add leader to each non-blank line
     # add right-stripped leader to each blank line
     # rejoin and return
-    return '\n'.join(
-        leader + line if line else leader.rstrip()
-        for line in s.split('\n')
+    return "\n".join(
+        leader + line if line else leader.rstrip() for line in s.split("\n")
     )
 
 
@@ -820,14 +827,17 @@ def dumps(obj, *, sort_keys=False, indent=4, renderers=None, default=None, level
 
     # define sort function
     if sort_keys:
+
         def sort(keys):
             return sorted(keys, key=sort_keys if callable(sort_keys) else None)
+
     else:
+
         def sort(keys):
             return keys
 
     # define object type identification functions
-    if default == 'strict':
+    if default == "strict":
         is_a_dict = lambda obj: (obj or level == 0) and isinstance(obj, dict)
         is_a_list = lambda obj: (obj or level == 0) and isinstance(obj, list)
         is_a_str = lambda obj: isinstance(obj, str)
@@ -844,18 +854,18 @@ def dumps(obj, *, sort_keys=False, indent=4, renderers=None, default=None, level
     def rdumps(v):
         return dumps(
             v,
-            sort_keys = sort_keys,
-            indent = indent,
-            renderers = renderers,
-            default = default,
-            level = level + 1
+            sort_keys=sort_keys,
+            indent=indent,
+            renderers=renderers,
+            default=default,
+            level=level + 1,
         )
 
     # render content
     assert indent > 0
     error = None
     need_indented_block = is_collection(obj)
-    content = ''
+    content = ""
     render = renderers.get(type(obj)) if renderers else None
     if render is False:
         error = "unsupported type."
@@ -865,24 +875,20 @@ def dumps(obj, *, sort_keys=False, indent=4, renderers=None, default=None, level
             need_indented_block = True
     elif is_a_dict(obj):
         content = "\n".join(
-            add_prefix(render_key(k) + ":", rdumps(obj[k]))
-            for k in sort(obj)
+            add_prefix(render_key(k) + ":", rdumps(obj[k])) for k in sort(obj)
         )
     elif is_a_list(obj):
-        content = "\n".join(
-            add_prefix("-", rdumps(v))
-            for v in obj
-        )
+        content = "\n".join(add_prefix("-", rdumps(v)) for v in obj)
     elif is_a_str(obj):
-        text = obj.replace('\r\n', '\n').replace('\r', '\n')
+        text = obj.replace("\r\n", "\n").replace("\r", "\n")
         if "\n" in text or level == 0:
-            content = add_leader(text, '> ')
+            content = add_leader(text, "> ")
             need_indented_block = True
         else:
             content = text
     elif is_a_scalar(obj):
         if obj is None:
-            content = ''
+            content = ""
         else:
             content = str(obj)
     elif default and callable(default):
@@ -891,7 +897,7 @@ def dumps(obj, *, sort_keys=False, indent=4, renderers=None, default=None, level
         error = "unsupported type."
 
     if need_indented_block and content and level:
-        content = "\n" + add_leader(content, indent*' ')
+        content = "\n" + add_leader(content, indent * " ")
 
     if error:
         raise NestedTextError(obj, template=error, culprit=repr(obj))
@@ -980,5 +986,5 @@ def dump(obj, f, **kwargs):
     else:
         return
 
-    with open(f, 'w', encoding='utf-8') as fp:
+    with open(f, "w", encoding="utf-8") as fp:
         fp.write(content)
