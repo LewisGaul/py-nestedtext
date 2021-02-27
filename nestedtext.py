@@ -188,7 +188,7 @@ def _indentation_error(line, depth):
     assert line.depth != depth
     prev_line = line.prev_line
     if not line.prev_line and depth == 0:
-        msg = "top-level content must start in column 1."
+        msg = "top-level content must start in column 1"
     elif (
         prev_line
         and prev_line.value
@@ -209,7 +209,7 @@ def _indentation_error(line, depth):
     elif prev_line and prev_line.depth > line.depth:
         msg = "invalid indentation, partial dedent"
     else:
-        msg = "invalid indentation."
+        msg = "invalid indentation"
     _report(textwrap.fill(msg), line, colno=depth)
 
 
@@ -224,25 +224,37 @@ class _LineType(enum.Enum):
     STRING = enum.auto()
     LIST = enum.auto()
     DICT = enum.auto()
+    EOF = enum.auto()
     UNRECOGNISED = enum.auto()
+
+    def __repr__(self):
+        return str(self)
+
+    def is_ignorable(self) -> bool:
+        return self in [self.BLANK, self.COMMENT]
 
 
 class _LinesIter(Iterable[_Line]):
     def __init__(self, lines):
-        self._lines = lines
-        self._generator = self._read_lines()
-        self._next_line = True
-        while self._next_line:
-            self._next_line = next(self._generator, None)
-            if self._next_line and self._next_line.kind not in [
-                _LineType.BLANK,
-                _LineType.COMMENT,
-            ]:
-                return
+        self._generator = self._read_lines(lines)
+        self._next_line: Optional[_Line] = self._advance_to_next_content_line()
 
-    def _read_lines(self):
+    def __iter__(self):
+        return self
+
+    def __next__(self) -> _Line:
+        if self._next_line is None:
+            raise StopIteration
+
+        this_line = self._next_line
+        self._next_line = self._advance_to_next_content_line()
+        if this_line.kind is _LineType.UNRECOGNISED:
+            _report("unrecognized line", this_line)
+        return this_line
+
+    def _read_lines(self, lines):
         prev_line = None
-        for lineno, line in enumerate(self._lines):
+        for lineno, line in enumerate(lines):
             depth = None
             key = None
             value = None
@@ -289,7 +301,7 @@ class _LinesIter(Iterable[_Line]):
                 value=value,
                 prev_line=prev_line,
             )
-            if kind in [_LineType.STRING, _LineType.LIST, _LineType.DICT]:
+            if not kind.is_ignorable():
                 prev_line = the_line
 
             # check the indent for non-spaces
@@ -304,59 +316,35 @@ class _LinesIter(Iterable[_Line]):
 
             yield the_line
 
-    def type_of_next(self) -> _LineType:
-        if self._next_line:
-            return self._next_line.kind
+        yield _Line(None, None, _LineType.EOF, 0, None, None, the_line)
 
-    def still_within_level(self, depth: int) -> bool:
-        if self._next_line:
-            return self._next_line.depth >= depth
+    def _advance_to_next_content_line(self) -> Optional[_Line]:
+        """Advance the generator the next useful line and return it."""
+        next_line = next(self._generator, None)
+        while next_line and next_line.kind.is_ignorable():
+            next_line = next(self._generator, None)
+        return next_line
 
-    def still_within_string(self, depth: int) -> bool:
-        if self._next_line:
-            return (
-                self._next_line.kind is _LineType.STRING
-                and self._next_line.depth >= depth
-            )
-
-    def depth_of_next(self) -> int:
-        if self._next_line:
-            return self._next_line.depth
-        return 0
-
-    def get_next(self) -> Optional[_Line]:
-        this_line = self._next_line
-
-        # queue up the next useful line
-        # this is needed so type_of_next() and still_within_level() can easily
-        # access the next upcoming line.
-        while self._next_line:
-            self._next_line = next(self._generator, None)
-            if not self._next_line or self._next_line.kind not in [
-                _LineType.BLANK,
-                _LineType.COMMENT,
-            ]:
-                break
-
-        if this_line and this_line.kind is _LineType.UNRECOGNISED:
-            _report("unrecognized line", this_line)
-        return this_line
+    def peek_next(self) -> Optional[_Line]:
+        return self._next_line
 
 
-def _read_value(lines, depth, on_dup):
-    if lines.type_of_next() is _LineType.LIST:
+def _read_value(lines: _LinesIter, depth: int, on_dup) -> Union[str, List, Dict]:
+    if lines.peek_next().kind is _LineType.LIST:
         return _read_list(lines, depth, on_dup)
-    if lines.type_of_next() is _LineType.DICT:
+    if lines.peek_next().kind is _LineType.DICT:
         return _read_dict(lines, depth, on_dup)
-    if lines.type_of_next() is _LineType.STRING:
+    if lines.peek_next().kind is _LineType.STRING:
         return _read_string(lines, depth)
-    _report("unrecognized line", lines.get_next())
+    _report("unrecognized line", next(lines))
 
 
-def _read_list(lines, depth, on_dup):
+def _read_list(lines: _LinesIter, depth: int, on_dup) -> List:
     data = []
-    while lines.still_within_level(depth):
-        line = lines.get_next()
+    while lines.peek_next().depth >= depth:
+        line = next(lines)
+        if line.kind is _LineType.EOF:
+            break
         if line.depth != depth:
             _indentation_error(line, depth)
         if line.kind is not _LineType.LIST:
@@ -364,9 +352,9 @@ def _read_list(lines, depth, on_dup):
         if line.value:
             data.append(line.value)
         else:
-            # value may simply be empty, or it may be on next line, in which
+            # Value may simply be empty, or it may be on next line, in which
             # case it must be indented.
-            depth_of_next = lines.depth_of_next()
+            depth_of_next = lines.peek_next().depth
             if depth_of_next > depth:
                 value = _read_value(lines, depth_of_next, on_dup)
             else:
@@ -375,10 +363,12 @@ def _read_list(lines, depth, on_dup):
     return data
 
 
-def _read_dict(lines, depth, on_dup):
+def _read_dict(lines: _LinesIter, depth: int, on_dup) -> Dict:
     data = {}
-    while lines.still_within_level(depth):
-        line = lines.get_next()
+    while lines.peek_next().depth >= depth:
+        line = next(lines)
+        if line.kind is _LineType.EOF:
+            break
         if line.depth != depth:
             _indentation_error(line, depth)
         if line.kind is not _LineType.DICT:
@@ -386,33 +376,35 @@ def _read_dict(lines, depth, on_dup):
         key = line.key
         value = line.value
         if not value:
-            depth_of_next = lines.depth_of_next()
+            depth_of_next = lines.peek_next().depth
             if depth_of_next > depth:
                 value = _read_value(lines, depth_of_next, on_dup)
             else:
                 value = ""
         if line.key in data:
-            # found duplicate key
+            # Found duplicate key.
             if on_dup is None:
-                _report("duplicate key: {}.", line, line.key, colno=depth)
+                _report("duplicate key: {}", line, line.key, colno=depth)
             if on_dup == "ignore":
                 continue
             if isinstance(on_dup, dict):
                 key = on_dup["_callback_func"](key, value, data, on_dup)
                 assert key not in data
             elif on_dup != "replace":
-                raise NotImplementedError(f"{on_dup}: unknown value for on_dup.")
+                raise ValueError(f"{on_dup}: unknown value for on_dup")
         data[key] = value
     return data
 
 
-def _read_string(lines, depth):
+def _read_string(lines: _LinesIter, depth: int) -> str:
     data = []
-    while lines.still_within_string(depth):
-        line = lines.get_next()
+    next_line = lines.peek_next()
+    while next_line.kind is _LineType.STRING and next_line.depth >= depth:
+        line = next(lines)
         data.append(line.value)
         if line.depth != depth:
             _indentation_error(line, depth)
+        next_line = lines.peek_next()
     return "\n".join(data)
 
 
@@ -422,10 +414,9 @@ def _read_all(lines, on_dup):
 
     lines = _LinesIter(lines)
 
-    if lines.type_of_next():
-        return _read_value(lines, 0, on_dup)
-    else:
+    if lines.peek_next().kind is _LineType.EOF:
         return None
+    return _read_value(lines, 0, on_dup)
 
 
 def loads(
@@ -533,7 +524,9 @@ def loads(
     return _read_all(content.splitlines(), on_dup)
 
 
-def load(f=None, *, on_dup=None):
+def load(
+    f, *, on_dup: Optional[Union[Callable, str]] = None
+) -> Union[str, List, Dict, None]:
     r"""
     Loads *NestedText* from file or stream.
 
@@ -605,7 +598,6 @@ def load(f=None, *, on_dup=None):
     # them once they are no longer needed, which reduces the memory usage.
 
     if isinstance(f, collections.abc.Iterator):
-        source = getattr(f, "name", None)
         return _read_all(f, on_dup)
     else:
         source = str(f)
