@@ -657,7 +657,7 @@ def _add_prefix(prefix, suffix):
 
 
 def dumps(obj, *, sort_keys=False, indent=4):
-    pass
+    raise NotImplementedError
 
 
 def dump(obj, fp, **kwargs):
