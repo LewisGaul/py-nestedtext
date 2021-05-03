@@ -269,7 +269,7 @@ class _LinesIter(Iterable[_Line]):
                 kind = _LineType.BLANK
                 value = None
                 depth = None
-            elif stripped[:1] == "#":
+            elif stripped[0] == "#":
                 kind = _LineType.COMMENT
                 value = line[1:].strip()
                 depth = None
@@ -278,7 +278,7 @@ class _LinesIter(Iterable[_Line]):
                 value = stripped[2:]
             elif stripped == ">" or stripped.startswith("> "):
                 kind = _LineType.STRING
-                value = line[depth + 2 :]
+                value = stripped[2:]
             else:
                 matches = dict_item_recognizer.fullmatch(stripped)
                 if matches:
@@ -299,7 +299,7 @@ class _LinesIter(Iterable[_Line]):
                 depth=depth,
                 key=key,
                 value=value,
-                prev_line=prev_line,
+                prev_line=None,
             )
             if not kind.is_ignorable():
                 prev_line = the_line
@@ -316,7 +316,7 @@ class _LinesIter(Iterable[_Line]):
 
             yield the_line
 
-        yield _Line(None, None, _LineType.EOF, 0, None, None, the_line)
+        yield _Line(None, None, _LineType.EOF, 0, None, None, None)
 
     def _advance_to_next_content_line(self) -> Optional[_Line]:
         """Advance the generator the next useful line and return it."""

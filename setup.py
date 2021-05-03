@@ -1,11 +1,10 @@
 from setuptools import setup
 
-
 with open("README.rst", encoding="utf-8") as f:
     readme = f.read()
 
 setup(
-    name="nestedtext-mini",
+    name="py-nestedtext",
     version="0.0.1",
     description="Minimal implementation of NestedText data format",
     long_description=readme,

@@ -1,9 +1,0 @@
-[report]
-exclude_lines =
-    pass
-    NotImplemented
-    raise NotImplementedError
-
-[run]
-source = nestedtext
-omit = */.tox/*
