@@ -33,10 +33,10 @@ def test_all(case: nt_test_api.TestCase):
 
     if "dump" in case.case:
         if "out" in case.case["dump"]:
-            expected = nt.dumps(case.case["dump"]["in"]["data"])
+            # TODO
+            # expected = nt.dumps(case.case["dump"]["in"]["data"])
             with open(case.case["dump"]["out"]["path"], "r") as f:
                 actual = f.read()
-            # TODO
             logger.warning("Dump success checking not implemented")
             # assert actual == expected
 
