@@ -1,6 +1,8 @@
 NestedText: A Human Friendly Data Format
 ========================================
 
+Python implementation of the NestedText spec, version 1.3.
+
 **Note that this is a simplified fork of the original project <https://github.com/KenKundert/nestedtext> with authors Ken & Kale Kundert. Please see that project for the official language spec.**
 
 |
@@ -120,3 +122,9 @@ Related Projects
 
 `visual studio <https://marketplace.visualstudio.com/items?itemName=bmarkovic17.nestedtext>`_:
     Syntax files for *Visual Studio*.
+
+
+Development
+-----------
+
+Run the tests with `pytest` (after `pip install -r requirements.txt`).
