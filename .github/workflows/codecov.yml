@@ -25,7 +25,7 @@ jobs:
 
     - name: Collect coverage
       run: |
-        coverage run --source=src/nestedtext.py -m pytest
+        coverage run --source=nestedtext -m pytest
         coverage report
         coverage xml -o cov.xml
 

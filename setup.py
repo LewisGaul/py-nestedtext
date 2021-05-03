@@ -1,15 +1,10 @@
 from setuptools import setup
 
 
-with open("README.rst", encoding="utf-8") as f:
-    README = f.read()
-
 setup(
     name="py-nestedtext",
     version="0.0.1",
     description="Minimal implementation of NestedText data format",
-    long_description=README,
-    long_description_content_type="text/x-rst",
     author="Lewis Gaul",
     author_email="lewis.gaul@gmail.com",
     license="MIT",
