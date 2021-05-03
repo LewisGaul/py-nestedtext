@@ -1,0 +1,76 @@
+# BUILD
+# =====
+[build-system]
+# Minimum requirements for the build system to execute.
+requires = [
+    "setuptools >= 42",
+    "wheel",
+]
+build-backend = "setuptools.build_meta"
+
+
+# TOOLS
+# =====
+
+# BLACK
+# -----
+[tool.black]
+line-length = 88
+target_version = ['py36']
+include = '\.pyi?$'
+exclude = '''
+(
+  /(
+    | \.git/
+    | .*venv.*/
+    | __pycache__/
+  )
+)
+'''
+
+
+# ISORT
+# -----
+[tool.isort]
+# Make compatible with Black
+line_length = 88
+multi_line_output = 3
+include_trailing_comma = true
+force_grid_wrap = 0
+use_parentheses = true
+# Other options
+order_by_type = true
+lines_after_imports = 2
+skip = ""
+skip_glob = "*venv*"
+
+
+# PYTEST
+# ------
+[tool.pytest.ini_options]
+testpaths = "tests/"
+norecursedirs = "tests/official_tests/"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
+python_files = "*test.py"
+python_classes = "*Tests, *Test"
+python_functions = "test_*"
+
+
+# COVERAGE
+# --------
+[tool.coverage.run]
+omit = [
+    "*venv*/**"
+]
+
+[tool.coverage.report]
+omit = []
+exclude_lines = [
+    "pass",
+    "if __name__ == .__main__.:",
+    "return NotImplemented",
+    "raise NotImplementedError",
+]
+precision = 1
