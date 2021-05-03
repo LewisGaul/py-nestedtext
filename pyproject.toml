@@ -53,9 +53,11 @@ norecursedirs = "tests/official_tests/"
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
 ]
-python_files = "*test.py"
+python_files = "*test.py, testsuite.py"
 python_classes = "*Tests, *Test"
 python_functions = "test_*"
+log_cli = true
+log_cli_level = "warn"
 
 
 # COVERAGE
