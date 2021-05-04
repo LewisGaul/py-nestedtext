@@ -261,7 +261,7 @@ def _read_object(
             key = _read_object_key(lines, depth)
             value = None
         else:
-            assert False
+            _report("expected object item", line, colno=depth)
         if not value:
             if lines.peek_next() is None:
                 if line.kind is _LineType.OBJECT_KEY:
