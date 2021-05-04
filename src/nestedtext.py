@@ -65,33 +65,8 @@ def _report(message, line, *args, colno=None, **kwargs) -> NoReturn:
     raise NestedtextError(message, line.lineno, colno)
 
 
-def _indentation_error(line, depth):
-    assert line.depth != depth
-    prev_line = line.prev_line
-    if not line.prev_line and depth == 0:
-        msg = "top-level content must start in column 1"
-    elif (
-        prev_line
-        and prev_line.value
-        and prev_line.depth < line.depth
-        and prev_line.kind in [_LineType.LIST_ITEM, _LineType.OBJECT_ITEM]
-    ):
-        if prev_line.value.strip() == "":
-            obs = ", which in this case consists only of whitespace"
-        else:
-            obs = ""
-        msg = " ".join(
-            [
-                "invalid indentation.",
-                "An indent may only follow a dictionary or list item that does",
-                f"not already have a value{obs}.",
-            ]
-        )
-    elif prev_line and prev_line.depth > line.depth:
-        msg = "invalid indentation, partial dedent"
-    else:
-        msg = "invalid indentation"
-    _report(textwrap.fill(msg), line, colno=depth)
+def _indentation_error(line, depth) -> NoReturn:
+    _report("invalid indentation", line, colno=depth)
 
 
 # ------------------------------------------------------------------------------
@@ -200,11 +175,11 @@ class _LinesIter(Iterable[_Line]):
             elif stripped == ">" or stripped.startswith("> "):
                 kind = _LineType.STRING
                 # Include end-of-line characters.
-                value = re.sub(r"> ?", "", line.lstrip(" "))
+                value = re.sub(r"> ?", "", line.lstrip(" "), count=1)
             elif stripped == ":" or stripped.startswith(": "):
                 kind = _LineType.OBJECT_KEY
                 # Include end-of-line characters.
-                value = re.sub(r": ?", "", line.lstrip(" "))
+                value = re.sub(r": ?", "", line.lstrip(" "), count=1)
             else:
                 match = re.fullmatch(r"(?P<key>.+?)\s*:(?: (?P<value>.*))?", stripped)
                 if match:
@@ -237,8 +212,8 @@ def _read_value(
 ) -> Union[str, List, Dict]:
     if lines.peek_next().kind is _LineType.LIST_ITEM:
         return _read_list(lines, depth, on_dup)
-    if lines.peek_next().kind is _LineType.OBJECT_ITEM:
-        return _read_dict(lines, depth, on_dup)
+    if lines.peek_next().kind in [_LineType.OBJECT_ITEM, _LineType.OBJECT_KEY]:
+        return _read_object(lines, depth, on_dup)
     if lines.peek_next().kind is _LineType.STRING:
         return _read_string(lines, depth)
     _report("unrecognized line", next(lines))
@@ -271,24 +246,33 @@ def _read_list(
     return data
 
 
-def _read_dict(
+def _read_object(
     lines: _LinesIter, depth: int, on_dup: DuplicateFieldBehaviour
 ) -> Dict[str, NestedtextType]:
     data = {}
     while lines.peek_next() and lines.peek_next().depth >= depth:
-        line = next(lines)
+        line = lines.peek_next()
         if line.depth != depth:
             _indentation_error(line, depth)
-        if line.kind is not _LineType.OBJECT_ITEM:
-            _report("expected dictionary item", line, colno=depth)
-        key, value = line.value
+        if line.kind is _LineType.OBJECT_ITEM:
+            next(lines)  # Advance the iterator
+            key, value = line.value
+        elif line.kind is _LineType.OBJECT_KEY:
+            key = _read_object_key(lines, depth)
+            value = None
+        else:
+            assert False
         if not value:
             if lines.peek_next() is None:
+                if line.kind is _LineType.OBJECT_KEY:
+                    raise NestedtextError("expected value after multiline object key")
                 value = ""
             else:
                 depth_of_next = lines.peek_next().depth
                 if depth_of_next > depth:
                     value = _read_value(lines, depth_of_next, on_dup)
+                elif line.kind is _LineType.OBJECT_KEY:
+                    raise NestedtextError("expected value after multiline object key")
                 else:
                     value = ""
         if key in data:
@@ -301,6 +285,19 @@ def _read_dict(
                 _report("duplicate key", line, colno=depth)
         data[key] = value
     return data
+
+
+def _read_object_key(lines: _LinesIter, depth: int) -> str:
+    data = []
+    while (
+        lines.peek_next()
+        and lines.peek_next().kind is _LineType.OBJECT_KEY
+        and lines.peek_next().depth == depth
+    ):
+        line = next(lines)
+        data.append(line.value)
+    data[-1] = data[-1].rstrip("\r\n")
+    return "".join(data)
 
 
 def _read_string(lines: _LinesIter, depth: int) -> str:
