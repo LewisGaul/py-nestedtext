@@ -280,7 +280,7 @@ def _read_object(
             if on_dup == DuplicateFieldBehaviour.USE_FIRST:
                 continue
             elif on_dup == DuplicateFieldBehaviour.USE_LAST:
-                raise NotImplementedError
+                pass
             elif on_dup == DuplicateFieldBehaviour.ERROR:
                 _report("duplicate key", line, colno=depth)
         data[key] = value
