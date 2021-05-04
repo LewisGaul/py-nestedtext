@@ -15,8 +15,22 @@ import nestedtext_official_tests as nt_test_api
 logger = logging.getLogger(__name__)
 
 
+skip_testcases = {
+    "dict_17": "Multiline object keys not implemented",
+    "dict_23": "Multiline object keys not implemented",
+    "dict_25": "Multiline object keys not implemented",
+    "dict_26": "Multiline object keys not implemented",
+    "dict_27": "Multiline object keys not implemented",
+    "holistic_1": "Multiline object keys not implemented",
+}
+
+
 @pytest.mark.parametrize("case", nt_test_api.load_test_cases(), ids=lambda c: c.id)
 def test_all(case: nt_test_api.TestCase):
+    if "inline" in case.id:
+        pytest.skip("Inline containers not yet implemented")
+    if case.id in skip_testcases:
+        pytest.skip(skip_testcases[case.id])
     if "load" in case.case:
         if "out" in case.case["load"]:
             expected = case.case["load"]["out"]["data"]

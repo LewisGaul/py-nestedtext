@@ -27,161 +27,42 @@ NestedText: A Human Readable and Writable Data Format
 
 __version__ = "0.0.1"
 
-__all__ = ("load", "loads", "dump", "dumps", "NestedTextError")
-
+__all__ = (
+    "load",
+    "loads",
+    "dump",
+    "dumps",
+    "DuplicateFieldBehaviour",
+    "NestedtextError",
+    "NestedtextType",
+)
 
 import collections
-import collections.abc
 import enum
+import os
 import re
 import textwrap
-from typing import Callable, Dict, Iterable, List, Optional, Union
+from typing import Dict, Iterable, List, NoReturn, Optional, Tuple, Union
 
 
-class NestedTextError(ValueError):
-    r"""
-    The *load* and *dump* functions all raise *NestedTextError* when they
-    discover an error. *NestedTextError* subclasses both the Python *ValueError*
-    and the *Error* exception from *Inform*.  You can find more documentation on
-    what you can do with this exception in the `Inform documentation
-    <https://inform.readthedocs.io/en/stable/api.html#exceptions>`_.
-
-    The exception provides the following attributes:
-
-    source:
-
-        The source of the *NestedText* content, if given. This is often a
-        filename.
-
-    line:
-
-        The text of the line of *NestedText* content where the problem was found.
-
-    lineno:
-
-        The number of the line where the problem was found.
-
-    colno:
-
-        The number of the character where the problem was found on *line*.
-
-    prev_line:
-
-        The text of the meaningful line immediately before where the problem was
-        found.  This would not be a comment or blank line.
-
-    template:
-
-        The possibly parameterized text used for the error message.
-
-    As with most exceptions, you can simply cast it to a string to get a
-    reasonable error message.
-
-    .. code-block:: python
-
-        >>> from textwrap import dedent
-        >>> import nestedtext as nt
-
-        >>> content = dedent('''
-        ...     name1: value1
-        ...     name1: value2
-        ...     name3: value3
-        ... ''').strip()
-
-        >>> try:
-        ...     print(nt.loads(content))
-        ... except nt.NestedTextError as e:
-        ...     print(str(e))
-        2: duplicate key: name1.
-
-    You can also use the *_report* method to print the message directly. This is
-    appropriate if you are using *inform* for your messaging as it follows
-    *inform*'s conventions::
-
-        >> try:
-        ..     print(nt.loads(content))
-        .. except nt.NestedTextError as e:
-        ..     e._report()
-        error: 2: duplicate key: name1.
-            «name1: value2»
-             ▲
-
-    The *terminate* method prints the message directly and exits::
-
-        >> try:
-        ..     print(nt.loads(content))
-        .. except nt.NestedTextError as e:
-        ..     e.terminate()
-        error: 2: duplicate key: name1.
-            «name1: value2»
-             ▲
-
-    With exceptions generated from :func:`load` or :func:`loads` you may see
-    extra lines at the end of the message that show the problematic lines if
-    you have the exception _report itself as above.  Those extra lines are
-    referred to as the codicil and they can be very helpful in illustrating the
-    actual problem. You do not get them if you simply cast the exception to a
-    string, but you can access them using :meth:`NestedTextError.get_codicil`.
-    The codicil or codicils are returned as a tuple.  You should join them with
-    newlines before printing them.
-
-    .. code-block:: python
-
-        >>> try:
-        ...     print(nt.loads(content))
-        ... except nt.NestedTextError as e:
-        ...     print(e.get_message())
-        ...     print(*e.get_codicil(), sep="\n")
-        duplicate key: name1.
-           1 «name1: value1»
-           2 «name1: value2»
-              ▲
-
-    Note the « and » characters in the codicil. They delimit the extend of the
-    text on each line and help you see troublesome leading or trailing white
-    space.
-
-    Exceptions produced by *NestedText* contain a *template* attribute that
-    contains the basic text of the message. You can change this message by
-    overriding the attribute using the *template* argument when using *_report*,
-    *terminate*, or *render*.  *render* is like casting the exception to a
-    string except that allows for the passing of arguments.  For example, to
-    convert a particular message to Spanish, you could use something like the
-    following.
-
-    .. code-block:: python
-
-        >>> try:
-        ...     print(nt.loads(content))
-        ... except nt.NestedTextError as e:
-        ...     template = None
-        ...     if e.template == 'duplicate key: {}.':
-        ...         template = 'llave duplicada: {}.'
-        ...     print(e.render(template=template))
-        2: llave duplicada: name1.
-
-    """
-
-    def __init__(self, template: str, culprit=None):
-        super().__init__(template)
+NestedtextType = Union[str, List["NestedtextType"], Dict[str, "NestedTextType"]]
 
 
-# Converts NestedText into Python data hierarchies.
+class NestedtextError(Exception):
+    def __init__(
+        self, message: str, lineno: Optional[int] = None, colno: Optional[int] = None
+    ):
+        if lineno is not None:
+            message += f": {lineno}"
+            if colno is not None:
+                message += f":{colno}"
+        super().__init__(message)
+        self.lineno = lineno
+        self.colno = colno
 
-# regular expressions used to recognize dict items
-dict_item_regex = r"""
-    (?P<quote>["']?)       # leading quote character, optional
-    (?P<key>.*?)           # key
-    (?P=quote)             # matching quote character
-    \s*                    # optional white space
-    :                      # separator
-    (?:\ (?P<value>.*))?   # value
-"""
-dict_item_recognizer = re.compile(dict_item_regex, re.VERBOSE)
 
-
-def _report(message, line, *args, colno=None, **kwargs):
-    raise NestedTextError(template=message)
+def _report(message, line, *args, colno=None, **kwargs) -> NoReturn:
+    raise NestedtextError(message, line.lineno, colno)
 
 
 def _indentation_error(line, depth):
@@ -193,7 +74,7 @@ def _indentation_error(line, depth):
         prev_line
         and prev_line.value
         and prev_line.depth < line.depth
-        and prev_line.kind in [_LineType.LIST, _LineType.DICT]
+        and prev_line.kind in [_LineType.LIST_ITEM, _LineType.OBJECT_ITEM]
     ):
         if prev_line.value.strip() == "":
             obs = ", which in this case consists only of whitespace"
@@ -213,19 +94,27 @@ def _indentation_error(line, depth):
     _report(textwrap.fill(msg), line, colno=depth)
 
 
-_Line = collections.namedtuple(
-    "_Line", "text, lineno, kind, depth, key, value, prev_line"
-)
+# ------------------------------------------------------------------------------
+# Parsing logic
+# ------------------------------------------------------------------------------
+
+
+class DuplicateFieldBehaviour(str, enum.Enum):
+    USE_FIRST = "use_first"
+    USE_LAST = "use_last"
+    ERROR = "error"
+
+    def __repr__(self):
+        return str(self)
 
 
 class _LineType(enum.Enum):
     BLANK = enum.auto()
     COMMENT = enum.auto()
     STRING = enum.auto()
-    LIST = enum.auto()
-    DICT = enum.auto()
-    EOF = enum.auto()
-    UNRECOGNISED = enum.auto()
+    LIST_ITEM = enum.auto()
+    OBJECT_ITEM = enum.auto()
+    OBJECT_KEY = enum.auto()
 
     def __repr__(self):
         return str(self)
@@ -234,8 +123,39 @@ class _LineType(enum.Enum):
         return self in [self.BLANK, self.COMMENT]
 
 
+class _Line(collections.namedtuple("_Line", "text, lineno, kind, depth, value")):
+    def __new__(
+        cls,
+        text: str,
+        lineno: int,
+        kind: _LineType,
+        depth: int,
+        value: Union[None, str, Tuple[str, Optional[str]]],
+    ):
+        return super().__new__(cls, text, lineno, kind, depth, value)
+
+
+class _InvalidLineType(enum.Enum):
+    NON_SPACE_INDENT = enum.auto()
+    UNRECOGNISED = enum.auto()
+
+    def __repr__(self):
+        return str(self)
+
+
+class _InvalidLine(collections.namedtuple("_InvalidLine", "text, lineno, kind, colno")):
+    def __new__(
+        cls,
+        text: str,
+        lineno: int,
+        kind: _InvalidLineType,
+        colno: int,
+    ):
+        return super().__new__(cls, text, lineno, kind, colno)
+
+
 class _LinesIter(Iterable[_Line]):
-    def __init__(self, lines):
+    def __init__(self, lines: Iterable[str]):
         self._generator = self._read_lines(lines)
         self._next_line: Optional[_Line] = self._advance_to_next_content_line()
 
@@ -248,372 +168,191 @@ class _LinesIter(Iterable[_Line]):
 
         this_line = self._next_line
         self._next_line = self._advance_to_next_content_line()
-        if this_line.kind is _LineType.UNRECOGNISED:
-            _report("unrecognized line", this_line)
         return this_line
 
-    def _read_lines(self, lines):
-        prev_line = None
-        for lineno, line in enumerate(lines):
-            depth = None
-            key = None
-            value = None
-            line = line.rstrip("\n")
+    def _read_lines(self, lines: Iterable[str]):
+        for idx, line in enumerate(lines):
+            if not line.strip():
+                yield _Line(line, idx + 1, _LineType.BLANK, 0, None)
+                continue
 
-            # compute indentation
-            stripped = line.lstrip()
-            depth = len(line) - len(stripped)
+            text = line.rstrip("\r\n")
 
-            # determine line type and extract values
-            if stripped == "":
-                kind = _LineType.BLANK
-                value = None
-                depth = None
-            elif stripped[0] == "#":
-                kind = _LineType.COMMENT
-                value = line[1:].strip()
-                depth = None
-            elif stripped == "-" or stripped.startswith("- "):
-                kind = _LineType.LIST
-                value = stripped[2:]
+            # Comments can have any leading whitespace.
+            if text.lstrip()[0] == "#":
+                yield _Line(line, idx + 1, _LineType.COMMENT, 0, text.lstrip()[1:])
+                continue
+
+            stripped = text.lstrip(" ")
+            depth = len(text) - len(stripped)
+
+            # Otherwise check leading whitespace consists only of spaces.
+            if len(stripped.lstrip()) < len(stripped):
+                yield _InvalidLine(
+                    line, idx + 1, _InvalidLineType.NON_SPACE_INDENT, depth
+                )
+                continue
+
+            # Now handle normal content lines!
+            if stripped == "-" or stripped.startswith("- "):
+                kind = _LineType.LIST_ITEM
+                value = stripped[2:] or None
             elif stripped == ">" or stripped.startswith("> "):
                 kind = _LineType.STRING
-                value = stripped[2:]
+                # Include end-of-line characters.
+                value = re.sub(r"> ?", "", line.lstrip(" "))
+            elif stripped == ":" or stripped.startswith(": "):
+                kind = _LineType.OBJECT_KEY
+                # Include end-of-line characters.
+                value = re.sub(r": ?", "", line.lstrip(" "))
             else:
-                matches = dict_item_recognizer.fullmatch(stripped)
-                if matches:
-                    kind = _LineType.DICT
-                    key = matches.group("key")
-                    value = matches.group("value")
-                    if value is None:
-                        value = ""
+                match = re.fullmatch(r"(?P<key>.+?)\s*:(?: (?P<value>.*))?", stripped)
+                if match:
+                    kind = _LineType.OBJECT_ITEM
+                    value = tuple(match.groups())
                 else:
-                    kind = _LineType.UNRECOGNISED
-                    value = line
-
-            # bundle information about line
-            the_line = _Line(
-                text=line,
-                lineno=lineno + 1,
-                kind=kind,
-                depth=depth,
-                key=key,
-                value=value,
-                prev_line=None,
-            )
-            if not kind.is_ignorable():
-                prev_line = the_line
-
-            # check the indent for non-spaces
-            if depth:
-                first_non_space = len(line) - len(line.lstrip(" "))
-                if first_non_space < depth:
-                    _report(
-                        f"invalid character in indentation: {line[first_non_space]!r}.",
-                        the_line,
-                        colno=first_non_space,
+                    yield _InvalidLine(
+                        line, idx + 1, _InvalidLineType.UNRECOGNISED, depth
                     )
+                    continue
 
-            yield the_line
-
-        yield _Line(None, None, _LineType.EOF, 0, None, None, None)
+            yield _Line(line, idx + 1, kind, depth, value)
 
     def _advance_to_next_content_line(self) -> Optional[_Line]:
         """Advance the generator the next useful line and return it."""
-        next_line = next(self._generator, None)
-        while next_line and next_line.kind.is_ignorable():
+        while True:
             next_line = next(self._generator, None)
+            if isinstance(next_line, _InvalidLine):
+                _report("invalid line", next_line, colno=next_line.colno)
+            if next_line is None or not next_line.kind.is_ignorable():
+                break
         return next_line
 
     def peek_next(self) -> Optional[_Line]:
         return self._next_line
 
 
-def _read_value(lines: _LinesIter, depth: int, on_dup) -> Union[str, List, Dict]:
-    if lines.peek_next().kind is _LineType.LIST:
+def _read_value(
+    lines: _LinesIter, depth: int, on_dup: DuplicateFieldBehaviour
+) -> Union[str, List, Dict]:
+    if lines.peek_next().kind is _LineType.LIST_ITEM:
         return _read_list(lines, depth, on_dup)
-    if lines.peek_next().kind is _LineType.DICT:
+    if lines.peek_next().kind is _LineType.OBJECT_ITEM:
         return _read_dict(lines, depth, on_dup)
     if lines.peek_next().kind is _LineType.STRING:
         return _read_string(lines, depth)
     _report("unrecognized line", next(lines))
 
 
-def _read_list(lines: _LinesIter, depth: int, on_dup) -> List:
+def _read_list(
+    lines: _LinesIter, depth: int, on_dup: DuplicateFieldBehaviour
+) -> List[NestedtextType]:
     data = []
-    while lines.peek_next().depth >= depth:
+    while lines.peek_next() and lines.peek_next().depth >= depth:
         line = next(lines)
-        if line.kind is _LineType.EOF:
-            break
         if line.depth != depth:
             _indentation_error(line, depth)
-        if line.kind is not _LineType.LIST:
+        if line.kind is not _LineType.LIST_ITEM:
             _report("expected list item", line, colno=depth)
         if line.value:
             data.append(line.value)
         else:
             # Value may simply be empty, or it may be on next line, in which
             # case it must be indented.
-            depth_of_next = lines.peek_next().depth
-            if depth_of_next > depth:
-                value = _read_value(lines, depth_of_next, on_dup)
-            else:
+            if lines.peek_next() is None:
                 value = ""
+            else:
+                depth_of_next = lines.peek_next().depth
+                if depth_of_next > depth:
+                    value = _read_value(lines, depth_of_next, on_dup)
+                else:
+                    value = ""
             data.append(value)
     return data
 
 
-def _read_dict(lines: _LinesIter, depth: int, on_dup) -> Dict:
+def _read_dict(
+    lines: _LinesIter, depth: int, on_dup: DuplicateFieldBehaviour
+) -> Dict[str, NestedtextType]:
     data = {}
-    while lines.peek_next().depth >= depth:
+    while lines.peek_next() and lines.peek_next().depth >= depth:
         line = next(lines)
-        if line.kind is _LineType.EOF:
-            break
         if line.depth != depth:
             _indentation_error(line, depth)
-        if line.kind is not _LineType.DICT:
+        if line.kind is not _LineType.OBJECT_ITEM:
             _report("expected dictionary item", line, colno=depth)
-        key = line.key
-        value = line.value
+        key, value = line.value
         if not value:
-            depth_of_next = lines.peek_next().depth
-            if depth_of_next > depth:
-                value = _read_value(lines, depth_of_next, on_dup)
-            else:
+            if lines.peek_next() is None:
                 value = ""
-        if line.key in data:
+            else:
+                depth_of_next = lines.peek_next().depth
+                if depth_of_next > depth:
+                    value = _read_value(lines, depth_of_next, on_dup)
+                else:
+                    value = ""
+        if key in data:
             # Found duplicate key.
-            if on_dup is None:
-                _report("duplicate key: {}", line, line.key, colno=depth)
-            if on_dup == "ignore":
+            if on_dup == DuplicateFieldBehaviour.USE_FIRST:
                 continue
-            if isinstance(on_dup, dict):
-                key = on_dup["_callback_func"](key, value, data, on_dup)
-                assert key not in data
-            elif on_dup != "replace":
-                raise ValueError(f"{on_dup}: unknown value for on_dup")
+            elif on_dup == DuplicateFieldBehaviour.USE_LAST:
+                raise NotImplementedError
+            elif on_dup == DuplicateFieldBehaviour.ERROR:
+                _report("duplicate key", line, colno=depth)
         data[key] = value
     return data
 
 
 def _read_string(lines: _LinesIter, depth: int) -> str:
     data = []
-    next_line = lines.peek_next()
-    while next_line.kind is _LineType.STRING and next_line.depth >= depth:
+    while (
+        lines.peek_next()
+        and lines.peek_next().kind is _LineType.STRING
+        and lines.peek_next().depth >= depth
+    ):
         line = next(lines)
         data.append(line.value)
         if line.depth != depth:
             _indentation_error(line, depth)
-        next_line = lines.peek_next()
-    return "\n".join(data)
+    data[-1] = data[-1].rstrip("\r\n")
+    return "".join(data)
 
 
-def _read_all(lines, on_dup):
-    if callable(on_dup):
-        on_dup = dict(_callback_func=on_dup)
-
+def _read_all(lines: Iterable[str], on_dup: DuplicateFieldBehaviour):
     lines = _LinesIter(lines)
-
-    if lines.peek_next().kind is _LineType.EOF:
+    if lines.peek_next() is None:
         return None
     return _read_value(lines, 0, on_dup)
 
 
 def loads(
-    content: str, *, on_dup: Optional[Union[Callable, str]] = None
-) -> Union[str, List, Dict, None]:
-    r"""
-    Loads *NestedText* from string.
-
-    Args:
-        content (str):
-            String that contains encoded data.
-        on_dup (str or func):
-            Indicates how duplicate keys in dictionaries should be handled. By
-            default they raise exceptions. Specifying 'ignore' causes them to be
-            ignored (first wins). Specifying 'replace' results in them replacing
-            earlier items (last wins). By specifying a function, the keys can be
-            de-duplicated.  This call-back function returns a new key and takes
-            four arguments:
-
-            1. The new key (duplicates an existing key).
-            2. The new value.
-            3. The entire dictionary as it is at the moment the duplicate key is
-               found.
-            4. The state; a dictionary that is created as the *loads* is called
-               and deleted as it returns. Values placed in this dictionary are
-               retained between multiple calls to this call back function.
-
-    Returns:
-        The extracted data.
-
-    Raises:
-        NestedTextError: if there is a problem in the *NextedText* content.
-
-    Examples:
-
-        *NestedText* is specified to *loads* in the form of a string:
-
-        .. code-block:: python
-
-            >>> import nestedtext as nt
-
-            >>> contents = '''
-            ... name: Kristel Templeton
-            ... sex: female
-            ... age: 74
-            ... '''
-
-            >>> try:
-            ...     data = nt.loads(contents)
-            ... except nt.NestedTextError as e:
-            ...     print("ERROR:", e)
-
-            >>> print(data)
-            {'name': 'Kristel Templeton', 'sex': 'female', 'age': '74'}
-
-        Here is a typical example of reading *NestedText* from a file:
-
-        .. code-block:: python
-
-            >>> filename = 'examples/duplicate-keys.nt'
-            >>> try:
-            ...     with open(filename, encoding='utf-8') as f:
-            ...         addresses = nt.loads(f.read())
-            ... except nt.NestedTextError as e:
-            ...     print("ERROR:", e)
-
-        Notice in the above example the encoding is explicitly specified as
-        'utf-8'.  *NestedText* files should always be read and written using
-        *utf-8* encoding.
-
-        The following examples demonstrate the various ways of handling
-        duplicate keys:
-
-        .. code-block:: python
-
-            >>> content = '''
-            ... key: value 1
-            ... key: value 2
-            ... key: value 3
-            ... name: value 4
-            ... name: value 5
-            ... '''
-
-            >>> print(nt.loads(content))
-            Traceback (most recent call last):
-            ...
-            nestedtext.NestedTextError: 3: duplicate key: key.
-
-            >>> print(nt.loads(content, on_dup='ignore'))
-            {'key': 'value 1', 'name': 'value 4'}
-
-            >>> print(nt.loads(content, on_dup='replace'))
-            {'key': 'value 3', 'name': 'value 5'}
-
-            >>> def de_dup(key, value, data, state):
-            ...     if key not in state:
-            ...         state[key] = 1
-            ...     state[key] += 1
-            ...     return f"{key}#{state[key]}"
-
-            >>> print(nt.loads(content, on_dup=de_dup))
-            {'key': 'value 1', 'key#2': 'value 2', 'key#3': 'value 3', 'name': 'value 4', 'name#2': 'value 5'}
-
-    """
+    content: str, *, on_dup=DuplicateFieldBehaviour.ERROR
+) -> Optional[NestedtextType]:
     return _read_all(content.splitlines(), on_dup)
 
 
 def load(
-    f, *, on_dup: Optional[Union[Callable, str]] = None
-) -> Union[str, List, Dict, None]:
-    r"""
-    Loads *NestedText* from file or stream.
-
-    Is the same as :func:`loads` except the *NextedText* is accessed by reading
-    a file rather than directly from a string. It does not keep the full
-    contents of the file in memory and so is more memory efficient with large
-    files.
-
-    Args:
-        f (str, os.PathLike, io.TextIOBase, collections.abc.Iterator):
-            The file to read the *NestedText* content from.  This can be
-            specified either as a path (e.g. a string or a `pathlib.Path`),
-            as a text IO object (e.g. an open file), or as an iterator.  If a
-            path is given, the file will be opened, read, and closed.  If an IO
-            object is given, it will be read and not closed; utf-8 encoding
-            should be used..  If an iterator is given, it should generate full
-            lines in the same manner that iterating on a file descriptor would.
-
-        kwargs:
-            See :func:`loads` for optional arguments.
-
-    Returns:
-        The extracted data.
-        See :func:`loads` description of the return value.
-
-    Raises:
-        NestedTextError: if there is a problem in the *NextedText* content.
-        OSError: if there is a problem opening the file.
-
-    Examples:
-
-        Load from a path specified as a string:
-
-        .. code-block:: python
-
-            >>> import nestedtext as nt
-            >>> print(open('examples/groceries.nt').read())
-            groceries:
-              - Bread
-              - Peanut butter
-              - Jam
-            <BLANKLINE>
-
-            >>> nt.load('examples/groceries.nt')
-            {'groceries': ['Bread', 'Peanut butter', 'Jam']}
-
-        Load from a `pathlib.Path`:
-
-        .. code-block:: python
-
-            >>> from pathlib import Path
-            >>> nt.load(Path('examples/groceries.nt'))
-            {'groceries': ['Bread', 'Peanut butter', 'Jam']}
-
-        Load from an open file object:
-
-        .. code-block:: python
-
-            >>> with open('examples/groceries.nt') as f:
-            ...     nt.load(f)
-            ...
-            {'groceries': ['Bread', 'Peanut butter', 'Jam']}
-
-    """
-
+    fp: os.PathLike, *, on_dup=DuplicateFieldBehaviour.ERROR
+) -> Optional[NestedtextType]:
     # Do not invoke the read method as that would read in the entire contents of
     # the file, possibly consuming a lot of memory. Instead pass the file
     # pointer into _read_all(), it will iterate through the lines, discarding
     # them once they are no longer needed, which reduces the memory usage.
-
-    if isinstance(f, collections.abc.Iterator):
-        return _read_all(f, on_dup)
-    else:
-        source = str(f)
-        with open(f, encoding="utf-8") as fp:
-            return _read_all(fp, on_dup)
+    with open(fp, "r", encoding="utf-8") as f:
+        return _read_all(f, on_dup=on_dup)
 
 
-# Convert Python data hierarchies to NestedText.
+# ------------------------------------------------------------------------------
+# Dumping logic
+# ------------------------------------------------------------------------------
 
 
 def _render_key(s):
     if not isinstance(s, str):
-        raise NestedTextError(template="keys must be strings.", culprit=s)
+        raise NestedtextError("keys must be strings")
     stripped = s.strip(" ")
     if "\n" in s:
-        raise NestedTextError("keys must not contain newlines", culprit=repr(s))
+        raise NestedtextError("keys must not contain newlines")
     if (
         len(stripped) < len(s)
         or s[:1] in ["#", "'", '"']
@@ -630,10 +369,10 @@ def _render_key(s):
         # if extracted key matches given key, accept
         for quote_char in quotes:
             key = quote_char + s + quote_char
-            matches = dict_item_recognizer.fullmatch(key + ":")
-            if matches and matches.group("key") == s:
-                return key
-        raise NestedTextError("cannot disambiguate key", culprit=key)
+            # matches = dict_item_recognizer.fullmatch(key + ":")
+            # if matches and matches.group("key") == s:
+            #     return key
+        raise NestedtextError("cannot disambiguate key")
     return s
 
 
