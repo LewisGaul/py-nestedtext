@@ -207,125 +207,122 @@ class _LinesIter(Iterable[_Line]):
         return self._next_line
 
 
-def _read_value(
-    lines: _LinesIter, depth: int, on_dup: DuplicateFieldBehaviour
-) -> Union[str, List, Dict]:
-    if lines.peek_next().kind is _LineType.LIST_ITEM:
-        return _read_list(lines, depth, on_dup)
-    if lines.peek_next().kind in [_LineType.OBJECT_ITEM, _LineType.OBJECT_KEY]:
-        return _read_object(lines, depth, on_dup)
-    if lines.peek_next().kind is _LineType.STRING:
-        return _read_string(lines, depth)
-    _report("unrecognized line", next(lines))
+class _Parser:
+    def __init__(self, *, on_dup=DuplicateFieldBehaviour.ERROR):
+        self.on_dup = on_dup
 
+    def _read_value(self, lines: _LinesIter, depth: int) -> Union[str, List, Dict]:
+        if lines.peek_next().kind is _LineType.LIST_ITEM:
+            return self._read_list(lines, depth)
+        if lines.peek_next().kind in [_LineType.OBJECT_ITEM, _LineType.OBJECT_KEY]:
+            return self._read_object(lines, depth)
+        if lines.peek_next().kind is _LineType.STRING:
+            return self._read_string(lines, depth)
+        _report("unrecognized line", next(lines))
 
-def _read_list(
-    lines: _LinesIter, depth: int, on_dup: DuplicateFieldBehaviour
-) -> List[NestedtextType]:
-    data = []
-    while lines.peek_next() and lines.peek_next().depth >= depth:
-        line = next(lines)
-        if line.depth != depth:
-            _indentation_error(line, depth)
-        if line.kind is not _LineType.LIST_ITEM:
-            _report("expected list item", line, colno=depth)
-        if line.value:
+    def _read_list(self, lines: _LinesIter, depth: int) -> List[NestedtextType]:
+        data = []
+        while lines.peek_next() and lines.peek_next().depth >= depth:
+            line = next(lines)
+            if line.depth != depth:
+                _indentation_error(line, depth)
+            if line.kind is not _LineType.LIST_ITEM:
+                _report("expected list item", line, colno=depth)
+            if line.value:
+                data.append(line.value)
+            else:
+                # Value may simply be empty, or it may be on next line, in which
+                # case it must be indented.
+                if lines.peek_next() is None:
+                    value = ""
+                else:
+                    depth_of_next = lines.peek_next().depth
+                    if depth_of_next > depth:
+                        value = self._read_value(lines, depth_of_next)
+                    else:
+                        value = ""
+                data.append(value)
+        return data
+
+    def _read_object(self, lines: _LinesIter, depth: int) -> Dict[str, NestedtextType]:
+        data = {}
+        while lines.peek_next() and lines.peek_next().depth >= depth:
+            line = lines.peek_next()
+            if line.depth != depth:
+                _indentation_error(line, depth)
+            if line.kind is _LineType.OBJECT_ITEM:
+                next(lines)  # Advance the iterator
+                key, value = line.value
+            elif line.kind is _LineType.OBJECT_KEY:
+                key = self._read_object_key(lines, depth)
+                value = None
+            else:
+                _report("expected object item", line, colno=depth)
+            if not value:
+                if lines.peek_next() is None:
+                    if line.kind is _LineType.OBJECT_KEY:
+                        raise NestedtextError(
+                            "expected value after multiline object key"
+                        )
+                    value = ""
+                else:
+                    depth_of_next = lines.peek_next().depth
+                    if depth_of_next > depth:
+                        value = self._read_value(lines, depth_of_next)
+                    elif line.kind is _LineType.OBJECT_KEY:
+                        raise NestedtextError(
+                            "expected value after multiline object key"
+                        )
+                    else:
+                        value = ""
+            if key in data:
+                # Found duplicate key.
+                if self.on_dup == DuplicateFieldBehaviour.USE_FIRST:
+                    continue
+                elif self.on_dup == DuplicateFieldBehaviour.USE_LAST:
+                    pass
+                elif self.on_dup == DuplicateFieldBehaviour.ERROR:
+                    _report("duplicate key", line, colno=depth)
+            data[key] = value
+        return data
+
+    def _read_object_key(self, lines: _LinesIter, depth: int) -> str:
+        data = []
+        while (
+            lines.peek_next()
+            and lines.peek_next().kind is _LineType.OBJECT_KEY
+            and lines.peek_next().depth == depth
+        ):
+            line = next(lines)
             data.append(line.value)
-        else:
-            # Value may simply be empty, or it may be on next line, in which
-            # case it must be indented.
-            if lines.peek_next() is None:
-                value = ""
-            else:
-                depth_of_next = lines.peek_next().depth
-                if depth_of_next > depth:
-                    value = _read_value(lines, depth_of_next, on_dup)
-                else:
-                    value = ""
-            data.append(value)
-    return data
+        data[-1] = data[-1].rstrip("\r\n")
+        return "".join(data)
 
+    def _read_string(self, lines: _LinesIter, depth: int) -> str:
+        data = []
+        while (
+            lines.peek_next()
+            and lines.peek_next().kind is _LineType.STRING
+            and lines.peek_next().depth >= depth
+        ):
+            line = next(lines)
+            data.append(line.value)
+            if line.depth != depth:
+                _indentation_error(line, depth)
+        data[-1] = data[-1].rstrip("\r\n")
+        return "".join(data)
 
-def _read_object(
-    lines: _LinesIter, depth: int, on_dup: DuplicateFieldBehaviour
-) -> Dict[str, NestedtextType]:
-    data = {}
-    while lines.peek_next() and lines.peek_next().depth >= depth:
-        line = lines.peek_next()
-        if line.depth != depth:
-            _indentation_error(line, depth)
-        if line.kind is _LineType.OBJECT_ITEM:
-            next(lines)  # Advance the iterator
-            key, value = line.value
-        elif line.kind is _LineType.OBJECT_KEY:
-            key = _read_object_key(lines, depth)
-            value = None
-        else:
-            _report("expected object item", line, colno=depth)
-        if not value:
-            if lines.peek_next() is None:
-                if line.kind is _LineType.OBJECT_KEY:
-                    raise NestedtextError("expected value after multiline object key")
-                value = ""
-            else:
-                depth_of_next = lines.peek_next().depth
-                if depth_of_next > depth:
-                    value = _read_value(lines, depth_of_next, on_dup)
-                elif line.kind is _LineType.OBJECT_KEY:
-                    raise NestedtextError("expected value after multiline object key")
-                else:
-                    value = ""
-        if key in data:
-            # Found duplicate key.
-            if on_dup == DuplicateFieldBehaviour.USE_FIRST:
-                continue
-            elif on_dup == DuplicateFieldBehaviour.USE_LAST:
-                pass
-            elif on_dup == DuplicateFieldBehaviour.ERROR:
-                _report("duplicate key", line, colno=depth)
-        data[key] = value
-    return data
-
-
-def _read_object_key(lines: _LinesIter, depth: int) -> str:
-    data = []
-    while (
-        lines.peek_next()
-        and lines.peek_next().kind is _LineType.OBJECT_KEY
-        and lines.peek_next().depth == depth
-    ):
-        line = next(lines)
-        data.append(line.value)
-    data[-1] = data[-1].rstrip("\r\n")
-    return "".join(data)
-
-
-def _read_string(lines: _LinesIter, depth: int) -> str:
-    data = []
-    while (
-        lines.peek_next()
-        and lines.peek_next().kind is _LineType.STRING
-        and lines.peek_next().depth >= depth
-    ):
-        line = next(lines)
-        data.append(line.value)
-        if line.depth != depth:
-            _indentation_error(line, depth)
-    data[-1] = data[-1].rstrip("\r\n")
-    return "".join(data)
-
-
-def _read_all(lines: Iterable[str], on_dup: DuplicateFieldBehaviour):
-    lines = _LinesIter(lines)
-    if lines.peek_next() is None:
-        return None
-    return _read_value(lines, 0, on_dup)
+    def parse(self, lines: Iterable[str]):
+        lines = _LinesIter(lines)
+        if lines.peek_next() is None:
+            return None
+        return self._read_value(lines, 0)
 
 
 def loads(
     content: str, *, on_dup=DuplicateFieldBehaviour.ERROR
 ) -> Optional[NestedtextType]:
-    return _read_all(content.splitlines(), on_dup)
+    return _Parser(on_dup=on_dup).parse(content.splitlines())
 
 
 def load(
@@ -333,10 +330,10 @@ def load(
 ) -> Optional[NestedtextType]:
     # Do not invoke the read method as that would read in the entire contents of
     # the file, possibly consuming a lot of memory. Instead pass the file
-    # pointer into _read_all(), it will iterate through the lines, discarding
+    # pointer, which will iterate through the lines, discarding
     # them once they are no longer needed, which reduces the memory usage.
     with open(fp, "r", encoding="utf-8") as f:
-        return _read_all(f, on_dup=on_dup)
+        return _Parser(on_dup=on_dup).parse(f)
 
 
 # ------------------------------------------------------------------------------
