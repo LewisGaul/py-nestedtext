@@ -42,7 +42,7 @@ import enum
 import io
 import os
 import re
-from typing import Dict, Iterable, List, NoReturn, Optional, Tuple, Union
+from typing import Any, Dict, Iterable, Iterator, List, NoReturn, Optional, Tuple, Union
 
 
 NestedtextType = Union[str, List["NestedtextType"], Dict[str, "NestedTextType"]]
@@ -90,6 +90,7 @@ class _LineType(enum.Enum):
     LIST_ITEM = enum.auto()
     OBJECT_ITEM = enum.auto()
     OBJECT_KEY = enum.auto()
+    INLINE_CONTAINER = enum.auto()
 
     def __repr__(self):
         return str(self)
@@ -145,53 +146,54 @@ class _LinesIter(Iterable[_Line]):
         self._next_line = self._advance_to_next_content_line()
         return this_line
 
-    def _read_lines(self, lines: Iterable[str]):
+    def _read_lines(self, lines: Iterable[str]) -> Iterator[Union[_Line, _InvalidLine]]:
         for idx, line in enumerate(lines):
-            if not line.strip():
-                yield _Line(line, idx + 1, _LineType.BLANK, 0, None)
-                continue
+            yield self._read_line(line, idx + 1)
 
-            text = line.rstrip("\r\n")
+    def _read_line(self, line: str, lineno: int) -> Union[_Line, _InvalidLine]:
+        if not line.strip():
+            return _Line(line, lineno, _LineType.BLANK, 0, None)
 
-            # Comments can have any leading whitespace.
-            if text.lstrip()[0] == "#":
-                yield _Line(line, idx + 1, _LineType.COMMENT, 0, text.lstrip()[1:])
-                continue
+        text = line.rstrip("\r\n")
 
-            stripped = text.lstrip(" ")
-            depth = len(text) - len(stripped)
+        # Comments can have any leading whitespace.
+        if text.lstrip()[0] == "#":
+            return _Line(line, lineno, _LineType.COMMENT, 0, text.lstrip()[1:])
 
-            # Otherwise check leading whitespace consists only of spaces.
-            if len(stripped.lstrip()) < len(stripped):
-                yield _InvalidLine(
-                    line, idx + 1, _InvalidLineType.NON_SPACE_INDENT, depth
-                )
-                continue
+        stripped = text.lstrip(" ")
+        depth = len(text) - len(stripped)
 
+        # Otherwise check leading whitespace consists only of spaces.
+        if len(stripped.lstrip()) < len(stripped):
+            return _InvalidLine(line, lineno, _InvalidLineType.NON_SPACE_INDENT, depth)
+
+        def _read_content_line() -> Optional[Tuple[_LineType, Any]]:
             # Now handle normal content lines!
             if stripped == "-" or stripped.startswith("- "):
-                kind = _LineType.LIST_ITEM
-                value = stripped[2:] or None
+                return _LineType.LIST_ITEM, stripped[2:] or None
             elif stripped == ">" or stripped.startswith("> "):
-                kind = _LineType.STRING
                 # Include end-of-line characters.
                 value = re.sub(r"> ?", "", line.lstrip(" "), count=1)
+                return _LineType.STRING, value
             elif stripped == ":" or stripped.startswith(": "):
-                kind = _LineType.OBJECT_KEY
                 # Include end-of-line characters.
                 value = re.sub(r": ?", "", line.lstrip(" "), count=1)
-            else:
-                match = re.fullmatch(r"(?P<key>.+?)\s*:(?: (?P<value>.*))?", stripped)
-                if match:
-                    kind = _LineType.OBJECT_ITEM
-                    value = tuple(match.groups())
-                else:
-                    yield _InvalidLine(
-                        line, idx + 1, _InvalidLineType.UNRECOGNISED, depth
-                    )
-                    continue
+                return _LineType.OBJECT_KEY, value
+            elif stripped[0] in "[{":
+                return _LineType.INLINE_CONTAINER, stripped
 
-            yield _Line(line, idx + 1, kind, depth, value)
+            # Object item?
+            match = re.fullmatch(r"(?P<key>.+?)\s*:(?: (?P<value>.*))?", stripped)
+            if match:
+                return _LineType.OBJECT_ITEM, tuple(match.groups())
+
+            return None
+
+        result = _read_content_line()
+        if result:
+            return _Line(line, lineno, result[0], depth, result[1])
+        else:
+            return _InvalidLine(line, lineno, _InvalidLineType.UNRECOGNISED, depth)
 
     def _advance_to_next_content_line(self) -> Optional[_Line]:
         """Advance the generator the next useful line and return it."""
