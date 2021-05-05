@@ -29,10 +29,17 @@ def test_all(case: nt_test_api.TestCase):
             expected = case.case["load"]["out"]["data"]
             actual = nt.load(case.case["load"]["in"]["path"])
             assert actual == expected
+
+            # Debug info.
             logger.debug("Loaded %s", case.case["load"]["in"]["path"])
             with open(case.case["load"]["in"]["path"], "r") as f:
                 logger.debug("\n%s", f.read())
             logger.debug("%s", json.dumps(actual))
+
+            # Check loads() function too.
+            with open(case.case["load"]["in"]["path"], "r") as f:
+                actual2 = nt.loads(f.read())
+            assert actual2 == expected
 
         elif "err" in case.case["load"]:
             # TODO

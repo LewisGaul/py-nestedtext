@@ -39,9 +39,9 @@ __all__ = (
 
 import collections
 import enum
+import io
 import os
 import re
-import textwrap
 from typing import Dict, Iterable, List, NoReturn, Optional, Tuple, Union
 
 
@@ -322,7 +322,7 @@ class _Parser:
 def loads(
     content: str, *, on_dup=DuplicateFieldBehaviour.ERROR
 ) -> Optional[NestedtextType]:
-    return _Parser(on_dup=on_dup).parse(content.splitlines())
+    return _Parser(on_dup=on_dup).parse(io.StringIO(content))
 
 
 def load(
