@@ -46,6 +46,7 @@ from typing import Any, Dict, Iterable, Iterator, List, NoReturn, Optional, Tupl
 
 
 NestedtextType = Union[str, List["NestedtextType"], Dict[str, "NestedTextType"]]
+NestedtextContainerType = Union[List[NestedtextType], Dict[str, NestedtextType]]
 
 
 class NestedtextError(Exception):
@@ -213,14 +214,36 @@ class _Parser:
     def __init__(self, *, on_dup=DuplicateFieldBehaviour.ERROR):
         self.on_dup = on_dup
 
+    def parse(self, lines: Iterable[str]):
+        lines = _LinesIter(lines)
+        if lines.peek_next() is None:
+            return None
+        return self._read_value(lines, 0)
+
     def _read_value(self, lines: _LinesIter, depth: int) -> Union[str, List, Dict]:
-        if lines.peek_next().kind is _LineType.LIST_ITEM:
-            return self._read_list(lines, depth)
-        if lines.peek_next().kind in [_LineType.OBJECT_ITEM, _LineType.OBJECT_KEY]:
-            return self._read_object(lines, depth)
         if lines.peek_next().kind is _LineType.STRING:
             return self._read_string(lines, depth)
+        elif lines.peek_next().kind is _LineType.LIST_ITEM:
+            return self._read_list(lines, depth)
+        elif lines.peek_next().kind in [_LineType.OBJECT_ITEM, _LineType.OBJECT_KEY]:
+            return self._read_object(lines, depth)
+        elif lines.peek_next().kind is _LineType.INLINE_CONTAINER:
+            return self._read_inline_container(lines, depth)
         _report("unrecognized line", next(lines))
+
+    def _read_string(self, lines: _LinesIter, depth: int) -> str:
+        data = []
+        while (
+            lines.peek_next()
+            and lines.peek_next().kind is _LineType.STRING
+            and lines.peek_next().depth >= depth
+        ):
+            line = next(lines)
+            data.append(line.value)
+            if line.depth != depth:
+                _indentation_error(line, depth)
+        data[-1] = data[-1].rstrip("\r\n")
+        return "".join(data)
 
     def _read_list(self, lines: _LinesIter, depth: int) -> List[NestedtextType]:
         data = []
@@ -300,25 +323,33 @@ class _Parser:
         data[-1] = data[-1].rstrip("\r\n")
         return "".join(data)
 
-    def _read_string(self, lines: _LinesIter, depth: int) -> str:
-        data = []
-        while (
-            lines.peek_next()
-            and lines.peek_next().kind is _LineType.STRING
-            and lines.peek_next().depth >= depth
-        ):
-            line = next(lines)
-            data.append(line.value)
-            if line.depth != depth:
-                _indentation_error(line, depth)
-        data[-1] = data[-1].rstrip("\r\n")
-        return "".join(data)
+    def _read_inline_container(
+        self, lines: _LinesIter, depth: int
+    ) -> NestedtextContainerType:
+        line = next(lines)
+        assert line.kind is _LineType.INLINE_CONTAINER
+        line_text = line.value
+        if line_text[0] == "[":
+            value = self._parse_inline_list(line_text)
+        elif line_text[0] == "{":
+            value = self._parse_inline_object(line_text)
+        else:
+            assert False
+        return value
 
-    def parse(self, lines: Iterable[str]):
-        lines = _LinesIter(lines)
-        if lines.peek_next() is None:
-            return None
-        return self._read_value(lines, 0)
+    def _parse_inline_list(self, text: str) -> List[NestedtextType]:
+        pass
+
+    def _parse_inline_object(self, text: str) -> Dict[str, NestedtextType]:
+        # State machine:
+        #  1. Looking for key (or closing brace -> finished)
+        #  2. Looking for colon
+        #  3. Looking for value
+        #  4. Looking for comma (or closing brace -> finished)
+        #  5. Looking for key
+        #  6. Looking for colon
+        #  ...
+        pass
 
 
 def loads(
