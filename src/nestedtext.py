@@ -352,18 +352,20 @@ class _Parser:
 def loads(
     content: str, *, on_dup=DuplicateFieldBehaviour.ERROR
 ) -> Optional[NestedtextType]:
-    return _Parser(on_dup=on_dup).parse(io.StringIO(content))
+    """
+    Deserialize 'content' (a NestedText document) to a Python object.
+    """
+    return load(io.StringIO(content), on_dup=on_dup)
 
 
 def load(
-    fp: os.PathLike, *, on_dup=DuplicateFieldBehaviour.ERROR
+    stream: Iterable, *, on_dup=DuplicateFieldBehaviour.ERROR
 ) -> Optional[NestedtextType]:
-    # Do not invoke the read method as that would read in the entire contents of
-    # the file, possibly consuming a lot of memory. Instead pass the file
-    # pointer, which will iterate through the lines, discarding
-    # them once they are no longer needed, which reduces the memory usage.
-    with open(fp, "r", encoding="utf-8") as f:
-        return _Parser(on_dup=on_dup).parse(f)
+    """
+    Deserialize 'stream' (an iterable of lines corresponding to a NestedText
+    document) to a Python object.
+    """
+    return _Parser(on_dup=on_dup).parse(stream)
 
 
 # ------------------------------------------------------------------------------
@@ -419,9 +421,123 @@ def _add_prefix(prefix, suffix):
     return prefix + " " + suffix
 
 
-def dumps(obj, *, sort_keys=False, indent=4):
-    raise NotImplementedError
+def _dump_internal(obj, writer, sort_keys=False, indent=4):
+    pass
 
 
-def dump(obj, fp, **kwargs):
-    fp.write(dumps(obj, **kwargs))
+class _Dumper:
+    def __init__(self, sort_keys: bool, indent: int):
+        self.sort_keys = sort_keys
+        self.indent_size = indent
+
+    def dump(self, obj, writer):
+        if isinstance(obj, str):
+            self._dump_multiline_str(obj, writer, 0)
+        elif isinstance(obj, list):
+            self._dump_list(obj, writer, 0)
+        elif isinstance(obj, dict):
+            self._dump_object(obj, writer, 0)
+        else:
+            raise NestedtextError(
+                "Unsupported type to dump {!r}".format(type(obj).__name__)
+            )
+
+    def _dump_multiline_str(self, string: str, writer, indent: int):
+        lines = string.splitlines(keepends=True)
+        for line in lines:
+            writer.write(" " * indent)
+            writer.write("> " if line.strip("\r\n") else ">")
+            writer.write(line)
+        if string == "" or string[-1] in "\r\n":
+            writer.write(" " * indent)
+            writer.write(">")
+
+    def _dump_list(self, values: list, writer, indent: int):
+        if len(values) == 0:
+            writer.write(" " * indent)
+            writer.write("[]\n")
+            return
+        for value in values:
+            writer.write(" " * indent)
+            writer.write("-")
+            if isinstance(value, str):
+                if "\r" in value or "\n" in value:
+                    writer.write("\n")
+                    self._dump_multiline_str(value, writer, indent + self.indent_size)
+                elif value:
+                    writer.write(" ")
+                    writer.write(value)
+                writer.write("\n")
+            elif isinstance(value, list):
+                writer.write("\n")
+                self._dump_list(value, writer, indent + self.indent_size)
+            elif isinstance(value, dict):
+                writer.write("\n")
+                self._dump_object(value, writer, indent + self.indent_size)
+            else:
+                raise NestedtextError(
+                    "Unsupported type to dump {!r}".format(type(value).__name__)
+                )
+
+    def _dump_object(self, obj: dict, writer, indent: int):
+        if len(obj) == 0:
+            writer.write(" " * indent)
+            writer.write("{}\n")
+            return
+        for key, value in obj.items():
+            if not isinstance(key, str):
+                raise NestedtextError("Unsupported object key type to dump")
+            if not re.fullmatch(r"[^\[\{:\->\s][^:\r\n]*", key):
+                self._dump_multiline_object_key(key, writer, indent)
+                force_multiline = True
+            else:
+                writer.write(" " * indent)
+                writer.write(key)
+                writer.write(":")
+                force_multiline = False
+
+            if isinstance(value, str):
+                if "\r" in value or "\n" in value or force_multiline:
+                    writer.write("\n")
+                    self._dump_multiline_str(value, writer, indent + self.indent_size)
+                elif value:
+                    writer.write(" ")
+                    writer.write(value)
+                writer.write("\n")
+            elif isinstance(value, list):
+                writer.write("\n")
+                self._dump_list(value, writer, indent + self.indent_size)
+            elif isinstance(value, dict):
+                writer.write("\n")
+                self._dump_object(value, writer, indent + self.indent_size)
+            else:
+                raise NestedtextError(
+                    "Unsupported type to dump {!r}".format(type(value).__name__)
+                )
+
+    def _dump_multiline_object_key(self, key: str, writer, indent: int):
+        lines = key.splitlines(keepends=True)
+        for line in lines:
+            writer.write(" " * indent)
+            writer.write(": " if line.strip("\r\n") else ":")
+            writer.write(line)
+        if key == "" or key[-1] in "\r\n":
+            writer.write(" " * indent)
+            writer.write(":")
+
+
+def dumps(obj, *, sort_keys: bool = False, indent: int = 4) -> str:
+    """
+    Serialize 'obj' to NestedText and return the result.
+    """
+    string = io.StringIO()
+    dump(obj, string, sort_keys=sort_keys, indent=indent)
+    return string.getvalue()
+
+
+def dump(obj, writer, *, sort_keys: bool = False, indent: int = 4) -> None:
+    """
+    Serialize 'obj' to NestedText and write out to 'writer' (an object that
+    supports the '.write()' method).
+    """
+    _Dumper(sort_keys, indent).dump(obj, writer)
