@@ -41,7 +41,6 @@ import collections
 import enum
 import io
 import json
-import os
 import re
 from typing import Any, Dict, Iterable, Iterator, List, NoReturn, Optional, Tuple, Union
 
@@ -371,58 +370,6 @@ def load(
 # ------------------------------------------------------------------------------
 # Dumping logic
 # ------------------------------------------------------------------------------
-
-
-def _render_key(s):
-    if not isinstance(s, str):
-        raise NestedtextError("keys must be strings")
-    stripped = s.strip(" ")
-    if "\n" in s:
-        raise NestedtextError("keys must not contain newlines")
-    if (
-        len(stripped) < len(s)
-        or s[:1] in ["#", "'", '"']
-        or s.startswith("- ")
-        or s.startswith("> ")
-        or ": " in s
-    ):
-        if "'" in s:
-            quotes = '"', "'"
-        else:
-            quotes = "'", '"'
-
-        # try extracting key using various both quote characters
-        # if extracted key matches given key, accept
-        for quote_char in quotes:
-            key = quote_char + s + quote_char
-            # matches = dict_item_recognizer.fullmatch(key + ":")
-            # if matches and matches.group("key") == s:
-            #     return key
-        raise NestedtextError("cannot disambiguate key")
-    return s
-
-
-def _add_leader(s, leader):
-    # split into separate lines
-    # add leader to each non-blank line
-    # add right-stripped leader to each blank line
-    # rejoin and return
-    return "\n".join(
-        leader + line if line else leader.rstrip() for line in s.split("\n")
-    )
-
-
-def _add_prefix(prefix, suffix):
-    # A simple formatting of dict and list items will result in a space
-    # after the colon or dash if the value is placed on next line.
-    # This, function simply eliminates that space.
-    if not suffix or suffix.startswith("\n"):
-        return prefix + suffix
-    return prefix + " " + suffix
-
-
-def _dump_internal(obj, writer, sort_keys=False, indent=4):
-    pass
 
 
 class _Dumper:
