@@ -9,7 +9,7 @@ with open(Path(__file__).parent / "README.md", "r") as f:
 
 setup(
     name="py-nestedtext",
-    version="0.0.2",
+    version="0.0.3",
     description="Minimal implementation of NestedText data format",
     long_description=README,
     author="Lewis Gaul",
