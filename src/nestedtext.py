@@ -40,6 +40,7 @@ __all__ = (
 import collections
 import enum
 import io
+import json
 import os
 import re
 from typing import Any, Dict, Iterable, Iterator, List, NoReturn, Optional, Tuple, Union
@@ -329,27 +330,23 @@ class _Parser:
         line = next(lines)
         assert line.kind is _LineType.INLINE_CONTAINER
         line_text = line.value
-        if line_text[0] == "[":
-            value = self._parse_inline_list(line_text)
-        elif line_text[0] == "{":
-            value = self._parse_inline_object(line_text)
-        else:
-            assert False
-        return value
-
-    def _parse_inline_list(self, text: str) -> List[NestedtextType]:
-        pass
-
-    def _parse_inline_object(self, text: str) -> Dict[str, NestedtextType]:
-        # State machine:
-        #  1. Looking for key (or closing brace -> finished)
-        #  2. Looking for colon
-        #  3. Looking for value
-        #  4. Looking for comma (or closing brace -> finished)
-        #  5. Looking for key
-        #  6. Looking for colon
-        #  ...
-        pass
+        # Convert into valid JSON!
+        line_text.replace('"', '\\"')  # Escape quotes
+        line_text.replace("\t", "\\t")  # Escape tabs
+        # Quote list items.
+        line_text = re.sub(
+            r"([\[,])\s*([^\[\]\{\}]+?)\s*(?=[,\]])", r'\1"\2"', line_text
+        )
+        # Quote dict keys.
+        line_text = re.sub(r"([\{,])\s*([^\[\]\{\}:]+?)\s*(?=:)", r'\1"\2"', line_text)
+        # Quote dict values.
+        line_text = re.sub(
+            r"([\{,][^\[\]]+?):\s*([^\[\]\{\}:]+?)\s*(?=[,\}])", r'\1:"\2"', line_text
+        )
+        try:
+            return json.loads(line_text)
+        except json.JSONDecodeError:
+            _report("Invalid inline list/object", line)
 
 
 def loads(

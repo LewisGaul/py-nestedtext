@@ -15,17 +15,21 @@ import nestedtext_official_tests as nt_test_api
 logger = logging.getLogger(__name__)
 
 
-skip_testcases = {}
+skip_testcases = {
+    "inline_dict_01": "Unsupported cases: empty values, trailing commas",
+    "inline_list_01": "Unsupported cases: empty values, trailing commas",
+}
 
 
 @pytest.mark.parametrize("case", nt_test_api.load_test_cases(), ids=lambda c: c.id)
 def test_all(case: nt_test_api.TestCase):
-    if "inline" in case.id:
-        pytest.skip("Inline containers not yet implemented")
+    # if "inline" in case.id:
+    #     pytest.skip("Inline containers not yet implemented")
     if case.id in skip_testcases:
         pytest.skip(skip_testcases[case.id])
     if "load" in case.case:
         if "out" in case.case["load"]:
+            logger.info("Checking successful load")
             expected = case.case["load"]["out"]["data"]
             actual = nt.load(case.case["load"]["in"]["path"])
             assert actual == expected
