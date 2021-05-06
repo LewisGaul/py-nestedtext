@@ -3,7 +3,7 @@ from setuptools import setup
 
 setup(
     name="py-nestedtext",
-    version="0.0.1",
+    version="0.0.2",
     description="Minimal implementation of NestedText data format",
     author="Lewis Gaul",
     author_email="lewis.gaul@gmail.com",
