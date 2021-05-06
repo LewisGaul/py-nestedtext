@@ -12,6 +12,7 @@ setup(
     version="0.0.3",
     description="Minimal implementation of NestedText data format",
     long_description=README,
+    long_description_content_type="text/markdown",
     author="Lewis Gaul",
     author_email="lewis.gaul@gmail.com",
     license="MIT",
