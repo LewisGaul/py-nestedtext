@@ -329,18 +329,25 @@ class _Parser:
         line = next(lines)
         assert line.kind is _LineType.INLINE_CONTAINER
         line_text = line.value
+
         # Convert into valid JSON!
-        line_text.replace('"', '\\"')  # Escape quotes
-        line_text.replace("\t", "\\t")  # Escape tabs
+
+        # Escape quotes and tabs.
+        line_text.replace('"', '\\"')
+        line_text.replace("\t", "\\t")
         # Quote list items.
         line_text = re.sub(
-            r"([\[,])\s*([^\[\]\{\}]+?)\s*(?=[,\]])", r'\1"\2"', line_text
+            r"([\[,])\s*(?P<value>[^\[\]\{\}]+?)\s*(?=[,\]])", r'\1"\2"', line_text
         )
         # Quote dict keys.
-        line_text = re.sub(r"([\{,])\s*([^\[\]\{\}:]+?)\s*(?=:)", r'\1"\2"', line_text)
+        line_text = re.sub(
+            r"([\{,])\s*(?P<key>[^\[\]\{\}:,]+?)\s*(?=:)", r'\1"\2"', line_text
+        )
         # Quote dict values.
         line_text = re.sub(
-            r"([\{,][^\[\]]+?):\s*([^\[\]\{\}:]+?)\s*(?=[,\}])", r'\1:"\2"', line_text
+            r"([\{,][^\[\]]+?):\s*(?P<value>[^\[\]\{\}:]+?)\s*(?=[,\}])",
+            r'\1:"\2"',
+            line_text,
         )
         try:
             return json.loads(line_text)
