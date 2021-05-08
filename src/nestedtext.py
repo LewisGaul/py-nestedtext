@@ -25,7 +25,7 @@
 NestedText: A Human Readable and Writable Data Format
 """
 
-__version__ = "0.0.1"
+__version__ = "0.0.4"
 
 __all__ = (
     "load",

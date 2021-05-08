@@ -2,6 +2,8 @@ from pathlib import Path
 
 from setuptools import setup
 
+import nestedtext as nt
+
 
 with open(Path(__file__).parent / "README.md", "r") as f:
     README = f.read()
@@ -9,7 +11,7 @@ with open(Path(__file__).parent / "README.md", "r") as f:
 
 setup(
     name="py-nestedtext",
-    version="0.0.3",
+    version=nt.__version__,
     description="Minimal implementation of NestedText data format",
     long_description=README,
     long_description_content_type="text/markdown",
